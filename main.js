@@ -63,7 +63,7 @@ function init(){
   document.getElementById('webglDebugContainer').appendChild( renderer.domElement );
 
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera( 45, 1/1, 0.5, 4 );
+  camera = new THREE.PerspectiveCamera( 45, 1/1, 0.5, 10 );
   camera.position.z = 2;
 
   // Init demo
@@ -77,7 +77,7 @@ function init(){
   var light = new THREE.DirectionalLight( 0xffffff, 1 );
   light.position.set( 1, 0.5, 2 ).normalize();
   demoScene.add( light );
-  demoCamera = new THREE.PerspectiveCamera( 45, window.innerWidth/window.innerHeight, 0.1, 100 );
+  demoCamera = new THREE.PerspectiveCamera( 45, window.innerWidth/window.innerHeight, 0.1, 200 );
   demoCamera.position.set(5,14,10);
   cameraObject = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshLambertMaterial());
   demoScene.add(cameraObject);
@@ -108,6 +108,8 @@ function init(){
     var demoBox = new THREE.Mesh(new THREE.BoxGeometry(size,size,size), new THREE.MeshLambertMaterial({ color: 0xff0000 })); demoBox.position.copy(box.position);
     demoScene.add(demoBox);
     demoBoxes.push(demoBox);
+
+    demoBox.frustumCulled = box.frustumCulled = false;
   }
 }
 
@@ -124,9 +126,13 @@ function cullObjects(){
   camera.updateMatrixWorld();
   viewMatrix.copy( camera.matrixWorldInverse );
   viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, viewMatrix );
+  var numVisible = 0;
   boxes.forEach((box, boxIndex) => {
     box.visible = demoBoxes[boxIndex].visible = !objectIsOccluded(box);
+    if(box.visible)
+      numVisible++;
   });
+  //console.log(numVisible / boxes.length);
 }
 
 function objectIsOccluded(object){
@@ -200,6 +206,12 @@ function triangleIsOccluded(va,vb,vc){
   return true;
 }
 
+function sortObjectsByDistance(objectA, objectB){
+  var distanceA = objectA.position.distanceTo(cameraObject.position);
+  var distanceB = objectB.position.distanceTo(cameraObject.position);
+  return distanceA - distanceB;
+}
+
 function checkBackfaceCulling( v1, v2, v3 ) {
   return ( ( v3.x - v1.x ) * ( v2.y - v1.y ) - ( v3.y - v1.y ) * ( v2.x - v1.x ) ) < 0;
 }
@@ -215,7 +227,7 @@ function updateZPyramid(){
   viewMatrix.copy( camera.matrixWorldInverse );
   viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, viewMatrix );
 
-  boxes.forEach((box) => {
+  boxes.sort(sortObjectsByDistance).slice(0,8).forEach((box) => {
     mvpMatrix.multiplyMatrices(viewProjectionMatrix, box.matrixWorld);
     box.geometry.faces.forEach((face,faceIndex) => {
       va.copy(box.geometry.vertices[face.a]);

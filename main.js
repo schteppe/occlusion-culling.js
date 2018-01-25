@@ -322,7 +322,12 @@ function updateHiZBuffer2(block, triangleZMax, triangleCoverageMask){
 
 function drawTriangleToZPyramid(va,vb,vc){
   if(!checkBackfaceCulling(va,vb,vc)){
-    return; // backface culling
+    //return; // backface culling
+
+    // New: render backfaces:
+    var temp = va;
+    va = vb;
+    vb = temp;
   }
 
   // Convert to screen space (0 to 1)
@@ -348,6 +353,12 @@ function drawTriangleToZPyramid(va,vb,vc){
   var maxx = Math.max(ax,bx,cx);
   var miny = Math.min(ay,by,cy);
   var maxy = Math.max(ay,by,cy);
+
+  if( maxx < 0 || maxy < 0 || minx > w || miny > h )
+  {
+    return false; // out of screen. Dont render!
+  }
+
   minx = clamp(minx, 0, w);
   maxx = clamp(maxx, 0, w);
   miny = clamp(miny, 0, h);
@@ -361,8 +372,6 @@ function drawTriangleToZPyramid(va,vb,vc){
     var xIntersect1 = getXAxisIntersection(vb.x, vb.y, vc.x, vc.y, y);
     var xIntersect2 = getXAxisIntersection(vc.x, vc.y, va.x, va.y, y);
 
-      loops++;
-      if(loops > 128) debugger;
     var kmin = Math.floor(minx / blockSizeX);
     var kmax = Math.ceil(maxx/blockSizeX);
     for(var k=kmin; k<kmax; k++){

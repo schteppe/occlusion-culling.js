@@ -132,7 +132,6 @@ function cullObjects(){
     if(box.visible)
       numVisible++;
   });
-  //console.log(numVisible / boxes.length);
 }
 
 function objectIsOccluded(object){
@@ -171,10 +170,9 @@ function triangleIsOccluded(va,vb,vc){
   vc.x = (vc.x+1)*0.5;
   vc.y = (vc.y+1)*0.5;
 
-  var i=mipmaps.length-1; //for(var i=0; i<mipmaps.length - 1; i++)
-  {
+  for(var i=mipmaps.length-1; i<mipmaps.length; i++){
     var mipmap = mipmaps[mipmaps.length-1-i];
-    var mipMapSize = Math.sqrt( mipmap.length ); // assume square
+    var mipMapSize = Math.sqrt( mipmap.length ); // TODO: Support non-square
 
     var ax = Math.floor( va.x * mipMapSize );
     var ay = Math.floor( va.y * mipMapSize );
@@ -188,6 +186,12 @@ function triangleIsOccluded(va,vb,vc){
     var maxx = Math.max(ax,bx,cx);
     var miny = Math.min(ay,by,cy);
     var maxy = Math.max(ay,by,cy);
+
+    if(maxx < 0 || maxy < 0 || minx > mipMapSize || miny > mipMapSize)
+    {
+      return false; // triangle is out of the screen. Can't determine if it's occluded.
+    }
+
     minx = clamp(minx, 0, mipMapSize);
     maxx = clamp(maxx, 0, mipMapSize);
     miny = clamp(miny, 0, mipMapSize);

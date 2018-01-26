@@ -1,8 +1,17 @@
 var blocks, ctx, w, h, numBlocksX, numBlocksY, blockSizeX, blockSizeY, fullyCoveredBlock, mipmaps, camera, renderer, scene;
-var data;
-var demoCamera, demoRenderer, demoScene, cameraObject, controls, boxes=[], demoBoxes=[];
-var numBoxes = 20;
+var data, stats;
+var demoCamera, demoRenderer, demoScene, cameraObject, controls, boxes=[], demoBoxes=[], tempBBox;
+var numBoxes = 100;
+var maxRenderedOccluders = 128;
+var minBoxSize = 0.1;
+var maxBoxSize = 1;
 
+var triangleIsOccluded_va = new THREE.Vector4();
+var triangleIsOccluded_vb = new THREE.Vector4();
+var triangleIsOccluded_vc = new THREE.Vector4();
+var drawTriangleToZPyramid_va = new THREE.Vector4();
+var drawTriangleToZPyramid_vb = new THREE.Vector4();
+var drawTriangleToZPyramid_vc = new THREE.Vector4();
 var va = new THREE.Vector4();
 var vb = new THREE.Vector4();
 var vc = new THREE.Vector4();
@@ -14,12 +23,13 @@ function Block(){
   this.coverageMask = 1;
   this.zMax1 = 0;
   this.zMax0 = 0;
+  this.clear();
 }
 Block.prototype = {
   clear: function(){
     this.coverageMask = 0;
     this.zMax0 = 1;
-    this.zMax1 = 0;
+    this.zMax1 = 1;
   }
 };
 
@@ -27,6 +37,9 @@ init();
 animate();
 
 function init(){
+
+  stats = new Stats();
+  document.body.appendChild( stats.dom );
 
   // Init rendering
   ctx = canvas.getContext('2d');
@@ -63,7 +76,7 @@ function init(){
   document.getElementById('webglDebugContainer').appendChild( renderer.domElement );
 
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera( 45, 1/1, 0.5, 10 );
+  camera = new THREE.PerspectiveCamera( 45, 1/1, 2, 10 );
   camera.position.z = 2;
 
   // Init demo
@@ -77,8 +90,10 @@ function init(){
   var light = new THREE.DirectionalLight( 0xffffff, 1 );
   light.position.set( 1, 0.5, 2 ).normalize();
   demoScene.add( light );
-  demoCamera = new THREE.PerspectiveCamera( 45, window.innerWidth/window.innerHeight, 0.1, 200 );
+  demoCamera = new THREE.PerspectiveCamera( 45, window.innerWidth/window.innerHeight, 0.5, 200 );
   demoCamera.position.set(5,14,10);
+  var helper = new THREE.CameraHelper( camera );
+  demoScene.add( helper );
   cameraObject = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshLambertMaterial());
   demoScene.add(cameraObject);
 	demoCamera.lookAt( new THREE.Vector3( 0, 0, 0 ) );
@@ -95,12 +110,13 @@ function init(){
 
 
   for(var i=0; i<numBoxes; i++){
-    var size = Math.random() * 1;
+    var size = minBoxSize + Math.random() * (maxBoxSize-minBoxSize);
+    var occluderScale = 0.9; // Make occluders slightly smaller than the rendered meshes.
 
     // Create occlusion culling box
-    var box = new THREE.Mesh(new THREE.BoxGeometry(size,size,size), new THREE.MeshDepthMaterial()); box.position.set(Math.random()-0.5,0,Math.random()-0.5).multiplyScalar(5);
-    box.position.z-=4;
-    box.position.y=Math.random()-0.5;
+    var box = new THREE.Mesh(new THREE.BoxGeometry(occluderScale*size,occluderScale*size,occluderScale*size), new THREE.MeshDepthMaterial()); box.position.set(Math.random()-0.5,0,Math.random()-0.5).multiplyScalar(5);
+    box.position.z-=5;
+    //box.position.y=Math.random()-0.5;
     scene.add(box);
     boxes.push(box);
 
@@ -111,14 +127,18 @@ function init(){
 
     demoBox.frustumCulled = box.frustumCulled = false;
   }
+
+  tempBBox = new THREE.Box3();
 }
 
 function animate(time){
-  requestAnimationFrame(animate);
+  stats.begin();
   clearZPyramid();
   updateZPyramid();
   cullObjects();
   render(time);
+  stats.end();
+  requestAnimationFrame(animate);
 }
 
 function cullObjects(){
@@ -127,14 +147,14 @@ function cullObjects(){
   viewMatrix.copy( camera.matrixWorldInverse );
   viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, viewMatrix );
   var numVisible = 0;
-  boxes.forEach((box, boxIndex) => {
-    box.visible = demoBoxes[boxIndex].visible = !objectIsOccluded(box);
-    if(box.visible)
-      numVisible++;
-  });
+  for(var i=0; i<boxes.length; i++){
+       boxes[i].visible = demoBoxes[i].visible = !objectIsOccluded(demoBoxes[i]);
+      if(boxes[i].visible) numVisible++;
+  }
 }
 
 function objectIsOccluded(object){
+  var numTrianglesInView = 0;
   mvpMatrix.multiplyMatrices(viewProjectionMatrix, object.matrixWorld);
   for(var i=0; i<object.geometry.faces.length; i++){
     var face = object.geometry.faces[i];
@@ -149,29 +169,37 @@ function objectIsOccluded(object){
     vb.divideScalar(vb.w);
     vc.divideScalar(vc.w);
 
+    // Within the clipping box?
+    if(!ndcTriangleIsInUnitBox(va,vb,vc)){
+      continue;
+    }
+
+    numTrianglesInView++;
+
     // Cull in screen space
     if(!triangleIsOccluded(va,vb,vc)){
       return false;
     }
   }
-  return true;
+
+  // If at least one triangle is in view, but we get here, it means that it was occluded
+  return numTrianglesInView > 0;
 }
 
-function triangleIsOccluded(va,vb,vc){
-  var triangleMax = Math.min(va.z,vb.z,vc.z);
+function triangleIsOccluded(a,b,c){
+  var va = triangleIsOccluded_va;
+  var vb = triangleIsOccluded_vb;
+  var vc = triangleIsOccluded_vc;
 
   // Convert to screen space (0 to 1)
-  va.x = (va.x+1)*0.5;
-  va.y = (va.y+1)*0.5;
+  ndcTo01(va,a);
+  ndcTo01(vb,b);
+  ndcTo01(vc,c);
 
-  vb.x = (vb.x+1)*0.5;
-  vb.y = (vb.y+1)*0.5;
+  var triangleMax = Math.min(va.z,vb.z,vc.z);
 
-  vc.x = (vc.x+1)*0.5;
-  vc.y = (vc.y+1)*0.5;
-
-  for(var i=mipmaps.length-1; i<mipmaps.length; i++){
-    var mipmap = mipmaps[mipmaps.length-1-i];
+  for(var i=0; i>=0; i--){
+    var mipmap = mipmaps[i];
     var mipMapSize = Math.sqrt( mipmap.length ); // TODO: Support non-square
 
     var ax = Math.floor( va.x * mipMapSize );
@@ -189,7 +217,7 @@ function triangleIsOccluded(va,vb,vc){
 
     if(maxx < 0 || maxy < 0 || minx > mipMapSize || miny > mipMapSize)
     {
-      return false; // triangle is out of the screen. Can't determine if it's occluded.
+      return false; // triangle is out of the screen. Can't determine if it's occluded. Should not cull!
     }
 
     minx = clamp(minx, 0, mipMapSize);
@@ -200,19 +228,26 @@ function triangleIsOccluded(va,vb,vc){
     for(var x=minx; x<maxx; x++){
       for(var y=miny; y<maxy; y++){
         var depth = mipmap[y*mipMapSize+x];
-        if(triangleMax < depth){
+        if(triangleMax < depth){ // triangle is in front of the occluder. Should not cull!
            return false;
         }
       }
     }
   }
 
+  // Triangle was checked against all mipmaps but it wasn't in front of any of them. Cull!
   return true;
 }
 
+function getObjectSize(object){
+  tempBBox.setFromObject(object);
+  var diagonalLength = tempBBox.min.distanceTo(tempBBox.max);
+  return diagonalLength;
+}
+
 function sortObjectsByDistance(objectA, objectB){
-  var distanceA = objectA.position.distanceTo(cameraObject.position);
-  var distanceB = objectB.position.distanceTo(cameraObject.position);
+  var distanceA = objectA.position.distanceTo(cameraObject.position) / getObjectSize(objectA);
+  var distanceB = objectB.position.distanceTo(cameraObject.position) / getObjectSize(objectB);
   return distanceA - distanceB;
 }
 
@@ -231,7 +266,7 @@ function updateZPyramid(){
   viewMatrix.copy( camera.matrixWorldInverse );
   viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, viewMatrix );
 
-  boxes.sort(sortObjectsByDistance).slice(0,8).forEach((box) => {
+  boxes.slice(0).sort(sortObjectsByDistance).slice(0,maxRenderedOccluders).forEach((box) => {
     mvpMatrix.multiplyMatrices(viewProjectionMatrix, box.matrixWorld);
     box.geometry.faces.forEach((face,faceIndex) => {
       va.copy(box.geometry.vertices[face.a]);
@@ -245,10 +280,20 @@ function updateZPyramid(){
       vb.divideScalar(vb.w);
       vc.divideScalar(vc.w);
 
-      drawTriangleToZPyramid(va,vb,vc);
+      if(ndcTriangleIsInUnitBox(va,vb,vc)){
+        drawTriangleToZPyramid(va,vb,vc);
+      }
     });
   });
   updateMipMaps();
+}
+
+function ndcTriangleIsInUnitBox(a,b,c){
+  return (
+    (Math.min(a.x,b.x,c.x) > -1 && Math.max(a.x,b.x,c.x) < 1) ||
+    (Math.min(a.y,b.y,c.y) > -1 && Math.max(a.y,b.y,c.y) < 1) ||
+    (Math.min(a.z,b.z,c.z) > -1 && Math.max(a.z,b.z,c.z) < 1)
+  );
 }
 
 function updateMipMaps(){
@@ -278,7 +323,7 @@ function updateMipMaps(){
         var depth1 = mipmaps[mipIndex-1][(2*py+1) * 2*mipSize + 2*px];
         var depth2 = mipmaps[mipIndex-1][(2*py  ) * 2*mipSize + 2*px + 1];
         var depth3 = mipmaps[mipIndex-1][(2*py+1) * 2*mipSize + 2*px + 1];
-        mipmaps[mipIndex][mipPosition] = Math.min(depth0,depth1,depth2,depth3);
+        mipmaps[mipIndex][mipPosition] = Math.max(depth0,depth1,depth2,depth3);
       }
     }
     mipSize /= 2;
@@ -289,11 +334,11 @@ function updateMipMaps(){
 function updateHiZBuffer(block, triangleZMax, triangleCoverageMask){
     var dist1t = block.zMax1 - triangleZMax;
     var dist01 = block.zMax0 - block.zMax1;
-    if(dist1t > dist01){
+    /* if(dist1t < dist01){
         block.zMax1 = triangleZMax;
         block.coverageMask = triangleCoverageMask;
-    }
-    block.zMax1 = Math.max(block.zMax1, triangleZMax);
+    } */
+    block.zMax1 = Math.min(block.zMax1, triangleZMax);
     block.coverageMask |= triangleCoverageMask;
 
     if(false && block.coverageMask === fullyCoveredBlock){
@@ -320,7 +365,22 @@ function updateHiZBuffer2(block, triangleZMax, triangleCoverageMask){
     }
 }
 
-function drawTriangleToZPyramid(va,vb,vc){
+function ndcTo01(out, point){
+  out.x = (point.x+1)*0.5;
+  out.y = (point.y+1)*0.5;
+  out.z = (point.z+1)*0.5;
+}
+
+function drawTriangleToZPyramid(a,b,c){
+  var va = drawTriangleToZPyramid_va;
+  var vb = drawTriangleToZPyramid_vb;
+  var vc = drawTriangleToZPyramid_vc;
+
+  // Convert to screen space (0 to 1)
+  ndcTo01(va,a);
+  ndcTo01(vb,b);
+  ndcTo01(vc,c);
+
   if(!checkBackfaceCulling(va,vb,vc)){
     //return; // backface culling
 
@@ -330,24 +390,17 @@ function drawTriangleToZPyramid(va,vb,vc){
     vb = temp;
   }
 
-  // Convert to screen space (0 to 1)
-  va.x = (va.x+1)*0.5;
-  va.y = (va.y+1)*0.5;
-
-  vb.x = (vb.x+1)*0.5;
-  vb.y = (vb.y+1)*0.5;
-
-  vc.x = (vc.x+1)*0.5;
-  vc.y = (vc.y+1)*0.5;
-
   var triangleZMax = Math.max(va.z, vb.z, vc.z);
-  //if(isNaN(triangleZMax)) debugger;
+  
+  if(isNaN(triangleZMax)) debugger;
+  
   var ax = Math.floor( va.x * w );
   var ay = Math.floor( va.y * h );
   var bx = Math.floor( vb.x * w );
   var by = Math.floor( vb.y * h );
   var cx = Math.floor( vc.x * w );
   var cy = Math.floor( vc.y * h );
+  
   // Get xy bounds for triangle
   var minx = Math.min(ax,bx,cx);
   var maxx = Math.max(ax,bx,cx);
@@ -434,7 +487,7 @@ function render(time){
 
   ctx.fillRect(0,0,w,h);
   var blockIndex = 0;
-  for(var i=0;i<data.data.length;i++) data.data[i] = 0; // clear
+  for(var i=0;i<data.data.length;i++) data.data[i] = 0; // clear. Todo: use .set()
   for(var j=0; j<numBlocksY; j++){
     for(var i=0; i<numBlocksX; i++){
       renderBlockToCanvas(blocks[blockIndex++], blockSizeX*i, blockSizeY*j);
@@ -469,7 +522,7 @@ function render(time){
   var mipSize = w;
   var mipIndex = 0;
   var dataX = 0;
-  for(var i=0;i<data2.data.length;i++) data2.data[i] = 0; // clear
+  for(var i=0;i<data2.data.length;i++) data2.data[i] = 0; // clear. todo: use .set()
   while(mipSize>2){
     for(var py=0; py<mipSize; py++){
       for(var px=0; px<mipSize; px++){
@@ -491,8 +544,8 @@ function render(time){
 
 function renderBlockToCanvas(block,x,y){
   for(var i=0; i<blockSizeX; i++){
-    //var c = Math.floor(block.zMax0 * 255); // (block.coverageMask & (1<<i)) ? 255 : 0;
-    var c = Math.floor(255*((block.coverageMask & (1<<i)) ? block.zMax1 : block.zMax0));
+    var depth = (block.coverageMask & (1<<i)) ? block.zMax1 : block.zMax0;
+    var c = Math.floor(255*depth);
     data.data[4 * (x+i+(y)*w) + 0] = c;
     data.data[4 * (x+i+(y)*w) + 1] = c;
     data.data[4 * (x+i+(y)*w) + 2] = c;

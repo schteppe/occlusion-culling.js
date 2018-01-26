@@ -146,6 +146,9 @@ function setNumBoxes(num){
     demoBoxes.push(demoBox);
 
     demoBox.frustumCulled = box.frustumCulled = false;
+    
+    // Pre-compute the approx size
+    box.approxSize = getObjectSize(box);
   }
 
   // Remove unused  
@@ -184,7 +187,7 @@ function objectIsOccluded(object){
   var numTrianglesInView = 0;
   mvpMatrix.multiplyMatrices(viewProjectionMatrix, object.matrixWorld);
   
-  // TODO: transform all 8 corners first. Then do the following
+  // TODO: transform all 8 aabb corners first. Then do the following
   for(var i=0; i<object.geometry.faces.length; i++){
     var face = object.geometry.faces[i];
     va.copy(object.geometry.vertices[face.a]);
@@ -276,8 +279,8 @@ function getObjectSize(object){
 }
 
 function sortObjectsByDistance(objectA, objectB){
-  var distanceA = objectA.position.distanceTo(cameraObject.position) / getObjectSize(objectA);
-  var distanceB = objectB.position.distanceTo(cameraObject.position) / getObjectSize(objectB);
+  var distanceA = objectA.position.distanceTo(cameraObject.position) / objectA.approxSize;
+  var distanceB = objectB.position.distanceTo(cameraObject.position) / objectB.approxSize;
   return distanceA - distanceB;
 }
 

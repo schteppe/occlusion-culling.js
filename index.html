@@ -1,8 +1,8 @@
 <div id="demoContainer"></div>
 <div style="pointer-events: none;">
   <div id="webglDebugContainer" style="display:inline;pointer-events: none;z-index: 4"></div>
-  <canvas width=64 height=64 id="canvas" style="position: absolute; z-index: 4;pointer-events: none;"></canvas>
-  <canvas width=128 height=64 id="canvas2" style="position: absolute; z-index: 4;pointer-events: none;"></canvas>
+  <canvas width=32 height=32 id="canvas" style="position: absolute; z-index: 4;pointer-events: none;"></canvas>
+  <canvas width=64 height=32 id="canvas2" style="position: absolute; z-index: 4;pointer-events: none;"></canvas>
 
   <h2>Rendering a Z-pyramid (for occlusion culling)</h2>
   <p>The code renders a triangle using coverage bitmasks. Can later on be vectorized using SIMD and used for occlusion culling in 3D games.</p>

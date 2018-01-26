@@ -9,7 +9,6 @@ var parameters = {
 };
 var minBoxSize = 0.1;
 var maxBoxSize = 1;
-var data2_zeros, data_zeros;
 
 var triangleIsOccluded_va = new THREE.Vector4();
 var triangleIsOccluded_vb = new THREE.Vector4();
@@ -52,12 +51,10 @@ function init(){
   w = canvas.width;
   h = canvas.height;
   data = ctx.createImageData(w,h);
-  data_zeros = new Uint8Array(data.length);
 
   // For mips:
   ctx2 = canvas2.getContext('2d');
   data2 = ctx2.createImageData(w*2,h);
-  data2_zeros = new Uint8Array(data2.length);
 
   // Init blocks
   blockSizeX = 1;
@@ -186,6 +183,8 @@ function cullObjects(){
 function objectIsOccluded(object){
   var numTrianglesInView = 0;
   mvpMatrix.multiplyMatrices(viewProjectionMatrix, object.matrixWorld);
+  
+  // TODO: transform all 8 corners first. Then do the following
   for(var i=0; i<object.geometry.faces.length; i++){
     var face = object.geometry.faces[i];
     va.copy(object.geometry.vertices[face.a]);
@@ -226,9 +225,7 @@ function triangleIsOccluded(a,b,c){
   ndcTo01(vb,b);
   ndcTo01(vc,c);
 
-  var triangleMax = Math.min(va.z,vb.z,vc.z);
-
-
+  var triangleClosestDepth = Math.min(va.z,vb.z,vc.z);
   for(var i=parameters.useMipmaps ? mipmaps.length-1 : 0; i>=0; i--){
     var mipmap = mipmaps[i];
     var mipMapSize = Math.sqrt( mipmap.length ); // TODO: Support non-square
@@ -240,34 +237,36 @@ function triangleIsOccluded(a,b,c){
     var cx = Math.floor( vc.x * mipMapSize );
     var cy = Math.floor( vc.y * mipMapSize );
 
+    // TODO: this can probably be done once for the largest mip. And then divided by 2 per step.
     // Get xy bounds for triangle
     var minx = Math.min(ax,bx,cx);
     var maxx = Math.max(ax,bx,cx);
     var miny = Math.min(ay,by,cy);
     var maxy = Math.max(ay,by,cy);
-
-    if(maxx < 0 || maxy < 0 || minx > mipMapSize || miny > mipMapSize)
+    if(maxx < 0 || maxy < 0 || minx >= mipMapSize || miny >= mipMapSize)
     {
       return false; // triangle is out of the screen. Can't determine if it's occluded. Should not cull!
     }
 
-    minx = clamp(minx, 0, mipMapSize);
-    maxx = clamp(maxx, 0, mipMapSize);
-    miny = clamp(miny, 0, mipMapSize);
-    maxy = clamp(maxy, 0, mipMapSize);
+    minx = clamp(minx, 0, mipMapSize-1);
+    maxx = clamp(maxx, 0, mipMapSize-1);
+    miny = clamp(miny, 0, mipMapSize-1);
+    maxy = clamp(maxy, 0, mipMapSize-1);
 
-    for(var x=minx; x<maxx; x++){
-      for(var y=miny; y<maxy; y++){
+    var behindOccluder = false;
+    for(var x=minx; x<=maxx; x++){
+      for(var y=miny; y<=maxy; y++){
         var depth = mipmap[y*mipMapSize+x];
-        if(triangleMax < depth){ // triangle is in front of the occluder. Should not cull!
-           return false;
+        if(triangleClosestDepth > depth){
+            // triangle is behind occluder. Triangle is definitely occluded and we dont need to check next mipmap!
+            return true;
         }
       }
     }
   }
 
-  // Triangle was checked against all mipmaps but it wasn't in front of any of them. Cull!
-  return true;
+  // Triangle was checked against all mipmaps but it wasn't occluded by any.
+  return false;
 }
 
 function getObjectSize(object){
@@ -354,7 +353,7 @@ function updateMipMaps(){
         var depth1 = mipmaps[mipIndex-1][(2*py+1) * 2*mipSize + 2*px];
         var depth2 = mipmaps[mipIndex-1][(2*py  ) * 2*mipSize + 2*px + 1];
         var depth3 = mipmaps[mipIndex-1][(2*py+1) * 2*mipSize + 2*px + 1];
-        mipmaps[mipIndex][mipPosition] = Math.max(depth0,depth1,depth2,depth3);
+        mipmaps[mipIndex][mipPosition] = Math.max(depth0,depth1,depth2,depth3); // use the furthest away depth
       }
     }
     mipSize /= 2;

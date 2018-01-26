@@ -1,10 +1,15 @@
 var blocks, ctx, w, h, numBlocksX, numBlocksY, blockSizeX, blockSizeY, fullyCoveredBlock, mipmaps, camera, renderer, scene;
 var data, stats;
 var demoCamera, demoRenderer, demoScene, cameraObject, controls, boxes=[], demoBoxes=[], tempBBox;
-var numBoxes = 100;
-var maxRenderedOccluders = 128;
+var parameters = {
+  maxRenderedOccluders: 8,
+  renderMipmaps: true,
+  useMipmaps: true,
+  numBoxes: 20
+};
 var minBoxSize = 0.1;
 var maxBoxSize = 1;
+var data2_zeros, data_zeros;
 
 var triangleIsOccluded_va = new THREE.Vector4();
 var triangleIsOccluded_vb = new THREE.Vector4();
@@ -40,15 +45,19 @@ function init(){
 
   stats = new Stats();
   document.body.appendChild( stats.dom );
-
+  stats.dom.style.top = canvas.height + 'px';
+  
   // Init rendering
   ctx = canvas.getContext('2d');
   w = canvas.width;
   h = canvas.height;
   data = ctx.createImageData(w,h);
+  data_zeros = new Uint8Array(data.length);
+
   // For mips:
   ctx2 = canvas2.getContext('2d');
   data2 = ctx2.createImageData(w*2,h);
+  data2_zeros = new Uint8Array(data2.length);
 
   // Init blocks
   blockSizeX = 1;
@@ -108,8 +117,22 @@ function init(){
     demoRenderer.setSize( window.innerWidth, window.innerHeight );
   }, false );
 
+  tempBBox = new THREE.Box3();
 
-  for(var i=0; i<numBoxes; i++){
+  var gui = new dat.GUI();
+  gui.add(parameters, 'maxRenderedOccluders', 0, 100);
+  gui.add(parameters, 'renderMipmaps');
+  gui.add(parameters, 'useMipmaps');
+  gui.add(parameters, 'numBoxes', 1,1000).onChange(function(newValue){
+    setNumBoxes( Math.floor(newValue) );
+  });
+
+  setNumBoxes(parameters.numBoxes);
+}
+
+function setNumBoxes(num){
+  // Add new boxes
+  while(demoBoxes.length < num){
     var size = minBoxSize + Math.random() * (maxBoxSize-minBoxSize);
     var occluderScale = 0.9; // Make occluders slightly smaller than the rendered meshes.
 
@@ -128,7 +151,14 @@ function init(){
     demoBox.frustumCulled = box.frustumCulled = false;
   }
 
-  tempBBox = new THREE.Box3();
+  // Remove unused  
+  while(demoBoxes.length > num){
+    var demoBox = demoBoxes.pop();
+    demoScene.remove(demoBox);
+
+    var box = boxes.pop();
+    scene.remove(box);
+  }
 }
 
 function animate(time){
@@ -198,7 +228,8 @@ function triangleIsOccluded(a,b,c){
 
   var triangleMax = Math.min(va.z,vb.z,vc.z);
 
-  for(var i=0; i>=0; i--){
+
+  for(var i=parameters.useMipmaps ? mipmaps.length-1 : 0; i>=0; i--){
     var mipmap = mipmaps[i];
     var mipMapSize = Math.sqrt( mipmap.length ); // TODO: Support non-square
 
@@ -266,7 +297,7 @@ function updateZPyramid(){
   viewMatrix.copy( camera.matrixWorldInverse );
   viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, viewMatrix );
 
-  boxes.slice(0).sort(sortObjectsByDistance).slice(0,maxRenderedOccluders).forEach((box) => {
+  boxes.slice(0).sort(sortObjectsByDistance).slice(0,parameters.maxRenderedOccluders).forEach((box) => {
     mvpMatrix.multiplyMatrices(viewProjectionMatrix, box.matrixWorld);
     box.geometry.faces.forEach((face,faceIndex) => {
       va.copy(box.geometry.vertices[face.a]);
@@ -348,23 +379,6 @@ function updateHiZBuffer(block, triangleZMax, triangleCoverageMask){
     }
 }
 
-function updateHiZBuffer2(block, triangleZMax, triangleCoverageMask){
-    var dist1t = block.zMax1 - triangleZMax;
-    var dist01 = block.zMax0 - block.zMax1;
-    if(dist1t < dist01){ // TODO: I changed this to < instead of >, why?
-        block.zMax1 = 0; // Why does this not work?
-        block.coverageMask = 0;
-    }
-    block.zMax1 = Math.max(block.zMax1, triangleZMax);
-    block.coverageMask |= triangleCoverageMask;
-
-    if(block.coverageMask === fullyCoveredBlock){
-        block.zMax0 = block.zMax1;
-        block.zMax1 = 0;
-        block.coverageMask = 0;
-    }
-}
-
 function ndcTo01(out, point){
   out.x = (point.x+1)*0.5;
   out.y = (point.y+1)*0.5;
@@ -438,10 +452,7 @@ function drawTriangleToZPyramid(a,b,c){
       var mask2 = getLineMask(vc.x, vc.y, va.x, va.y, vb.x, vb.y, x, y, xIntersect2);
 
       var triangleCoverageMask = mask0 & mask1 & mask2;
-      //if(triangleCoverageMask) debugger
-      //if(triangleCoverageMask){
       updateHiZBuffer(block, triangleZMax, triangleCoverageMask);
-      //}
     }
   }
 }
@@ -485,70 +496,27 @@ function render(time){
   camera.position.copy( cameraObject.position );
 	demoRenderer.render( demoScene, demoCamera );
 
-  ctx.fillRect(0,0,w,h);
-  var blockIndex = 0;
-  for(var i=0;i<data.data.length;i++) data.data[i] = 0; // clear. Todo: use .set()
-  for(var j=0; j<numBlocksY; j++){
-    for(var i=0; i<numBlocksX; i++){
-      renderBlockToCanvas(blocks[blockIndex++], blockSizeX*i, blockSizeY*j);
-    }
-  }
-  ctx.putImageData(data,0,0);
-
-  /*
-  // Debug render the final triangle
-  box2.geometry.faces.forEach((face,faceIndex) => {
-    va.copy(box2.geometry.vertices[face.a]);
-    vb.copy(box2.geometry.vertices[face.b]);
-    vc.copy(box2.geometry.vertices[face.c]);
-    va.w = vb.w = vc.w = 1;
-    va.applyMatrix4( mvpMatrix );
-    vb.applyMatrix4( mvpMatrix );
-    vc.applyMatrix4( mvpMatrix );
-    va.divideScalar(va.w);
-    vb.divideScalar(vb.w);
-    vc.divideScalar(vc.w);
-    ctx.beginPath();
-    ctx.moveTo(0.5*(va.x*w+w),0.5*(va.y*h+h));
-    ctx.lineTo(0.5*(vb.x*w+w),0.5*(vb.y*h+h));
-    ctx.lineTo(0.5*(vc.x*w+w),0.5*(vc.y*h+h));
-    ctx.closePath();
-    ctx.strokeStyle = 'red';
-    ctx.stroke();
-  });
-  */
-
-  // Render mips
-  var mipSize = w;
-  var mipIndex = 0;
-  var dataX = 0;
-  for(var i=0;i<data2.data.length;i++) data2.data[i] = 0; // clear. todo: use .set()
-  while(mipSize>2){
-    for(var py=0; py<mipSize; py++){
-      for(var px=0; px<mipSize; px++){
-        var mipPosition = py*mipSize + px;
-        var depth = mipmaps[mipIndex][mipPosition];
-        var dataOffset = 4*((mipSize-py-1)*w*2 + dataX+px); // render upside down
-        data2.data[dataOffset+0] = 255*depth;
-        data2.data[dataOffset+1] = 255*depth;
-        data2.data[dataOffset+2] = 255*depth;
-        data2.data[dataOffset+3] = 255;
+  if(parameters.renderMipmaps){
+    // Render mips
+    var mipSize = w;
+    var mipIndex = 0;
+    var dataX = 0;
+    while(mipSize>2){
+      for(var py=0; py<mipSize; py++){
+        for(var px=0; px<mipSize; px++){
+          var mipPosition = py*mipSize + px;
+          var depth = mipmaps[mipIndex][mipPosition];
+          var dataOffset = 4*((mipSize-py-1)*w*2 + dataX+px); // render upside down
+          data2.data[dataOffset+0] = 255*depth;
+          data2.data[dataOffset+1] = 255*depth;
+          data2.data[dataOffset+2] = 255*depth;
+          data2.data[dataOffset+3] = 255;
+        }
       }
+      dataX += mipSize;
+      mipSize /= 2;
+      mipIndex++;
     }
-    dataX += mipSize;
-    mipSize /= 2;
-    mipIndex++;
-  }
-  ctx2.putImageData(data2,0,0);
-}
-
-function renderBlockToCanvas(block,x,y){
-  for(var i=0; i<blockSizeX; i++){
-    var depth = (block.coverageMask & (1<<i)) ? block.zMax1 : block.zMax0;
-    var c = Math.floor(255*depth);
-    data.data[4 * (x+i+(y)*w) + 0] = c;
-    data.data[4 * (x+i+(y)*w) + 1] = c;
-    data.data[4 * (x+i+(y)*w) + 2] = c;
-    data.data[4 * (x+i+(y)*w) + 3] = 255;
+    ctx2.putImageData(data2,0,0);
   }
 }

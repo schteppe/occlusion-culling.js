@@ -120,7 +120,7 @@ function init(){
   gui.add(parameters, 'maxRenderedOccluders', 0, 100);
   gui.add(parameters, 'renderMipmaps');
   gui.add(parameters, 'useMipmaps');
-  gui.add(parameters, 'numBoxes', 1,1000).onChange(function(newValue){
+  gui.add(parameters, 'numBoxes', 1,3000).onChange(function(newValue){
     setNumBoxes( Math.floor(newValue) );
   });
 
@@ -172,8 +172,8 @@ function animate(time){
 }
 
 function cullObjects(){
-  scene.updateMatrixWorld();
-  camera.updateMatrixWorld();
+  //scene.updateMatrixWorld();
+  //camera.updateMatrixWorld();
   viewMatrix.copy( camera.matrixWorldInverse );
   viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, viewMatrix );
   var numVisible = 0;
@@ -294,8 +294,8 @@ function clearZPyramid(){
   });
 }
 function updateZPyramid(){
-  scene.updateMatrixWorld();
-  camera.updateMatrixWorld();
+  //scene.updateMatrixWorld();
+  //camera.updateMatrixWorld();
   viewMatrix.copy( camera.matrixWorldInverse );
   viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, viewMatrix );
 

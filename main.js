@@ -22,6 +22,7 @@ var vc = new THREE.Vector4();
 var mvpMatrix = new THREE.Matrix4();
 var viewMatrix = new THREE.Matrix4();
 var viewProjectionMatrix = new THREE.Matrix4();
+var tempCorners = Array.from(new Array(8), function(){ return new THREE.Vector4(); });
 
 function Block(){
   this.coverageMask = 1;
@@ -149,6 +150,9 @@ function setNumBoxes(num){
     
     // Pre-compute the approx size
     box.approxSize = getObjectSize(box);
+
+    box.geometry.computeBoundingBox();
+    demoBox.geometry.computeBoundingBox();
   }
 
   // Remove unused  
@@ -178,15 +182,97 @@ function cullObjects(){
   viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, viewMatrix );
   var numVisible = 0;
   for(var i=0; i<boxes.length; i++){
-       boxes[i].visible = demoBoxes[i].visible = !objectIsOccluded(demoBoxes[i]);
+       boxes[i].visible = demoBoxes[i].visible = !objectIsOccluded2(demoBoxes[i]);
       if(boxes[i].visible) numVisible++;
   }
+}
+
+function objectIsOccluded2(object){
+  mvpMatrix.multiplyMatrices(viewProjectionMatrix, object.matrixWorld);
+
+  // Compute the bounding rectangle in screen space by using the bounding box.
+  var l = object.geometry.boundingBox.min;
+  var u = object.geometry.boundingBox.max;
+  tempCorners[0].copy(l);
+	tempCorners[1].set( u.x, l.y, l.z );
+	tempCorners[2].set( l.x, u.y, l.z );
+	tempCorners[3].set( u.x, u.y, l.z );
+	tempCorners[4].set( l.x, l.y, u.z );
+	tempCorners[5].set( u.x, l.y, u.z );
+	tempCorners[6].set( l.x, u.y, u.z );
+  tempCorners[7].copy(u);
+  for(var i=0; i<tempCorners.length; i++){
+    var v = tempCorners[i];
+    v.w = 1;
+    v.applyMatrix4( mvpMatrix );
+    v.divideScalar(v.w);
+  }
+  var ndcRectX0 = Math.min(tempCorners[0].x, tempCorners[1].x, tempCorners[2].x, tempCorners[3].x, tempCorners[4].x, tempCorners[5].x, tempCorners[6].x, tempCorners[7].x);
+  var ndcRectX1 = Math.max(tempCorners[0].x, tempCorners[1].x, tempCorners[2].x, tempCorners[3].x, tempCorners[4].x, tempCorners[5].x, tempCorners[6].x, tempCorners[7].x);
+  var ndcRectY0 = Math.min(tempCorners[0].y, tempCorners[1].y, tempCorners[2].y, tempCorners[3].y, tempCorners[4].y, tempCorners[5].y, tempCorners[6].y, tempCorners[7].y);
+  var ndcRectY1 = Math.max(tempCorners[0].y, tempCorners[1].y, tempCorners[2].y, tempCorners[3].y, tempCorners[4].y, tempCorners[5].y, tempCorners[6].y, tempCorners[7].y);
+
+  // Is the rect inside the unit box?
+  if(ndcRectX1 < -1 || ndcRectY1 < -1 || ndcRectX0 > 1 || ndcRectX0 > 1) return false;
+
+  // Find closest AABB depth value
+  var boundingRectDepth = Math.min(tempCorners[0].z, tempCorners[1].z, tempCorners[2].z, tempCorners[3].z, tempCorners[4].z, tempCorners[5].z, tempCorners[6].z, tempCorners[7].z);
+
+  return ndcRectIsOccluded(ndcRectX0,ndcRectX1,ndcRectY0,ndcRectY1,boundingRectDepth);
+}
+
+function ndcRectIsOccluded(x0,x1,y0,y1,closestDepth){
+
+  // Convert to screen space (0 to 1)
+  x0 = (x0 + 1) * 0.5;
+  x1 = (x1 + 1) * 0.5;
+  y0 = (y0 + 1) * 0.5;
+  y1 = (y1 + 1) * 0.5;
+
+  closestDepth = ( closestDepth + 1 ) * 0.5;
+
+  for(var i=parameters.useMipmaps ? mipmaps.length-1 : 0; i>=0; i--){
+    var mipmap = mipmaps[i];
+    var mipMapSize = Math.sqrt( mipmap.length ); // TODO: Support non-square
+
+    var minx = Math.floor( x0 * mipMapSize );
+    var maxx = Math.ceil( x1 * mipMapSize );
+    var miny = Math.floor( y0 * mipMapSize );
+    var maxy = Math.ceil( y1 * mipMapSize );
+
+    if(maxx < 0 || maxy < 0 || minx >= mipMapSize || miny >= mipMapSize)
+    {
+      return false; // triangle is out of the screen. Can't determine if it's occluded. Should not cull!
+    }
+
+    minx = clamp(minx, 0, mipMapSize-1);
+    maxx = clamp(maxx, 0, mipMapSize-1);
+    miny = clamp(miny, 0, mipMapSize-1);
+    maxy = clamp(maxy, 0, mipMapSize-1);
+
+    var behindOccluder = true;
+    for(var x=minx; x<=maxx; x++){
+      for(var y=miny; y<=maxy; y++){
+        var depth = mipmap[y*mipMapSize+x];
+        if(closestDepth < depth){
+            // behind occluder. Rectangle is definitely occluded and we dont need to check next mipmap!
+            behindOccluder = false;
+        }
+      }
+    }
+    if(behindOccluder){
+      return true;
+    }
+  }
+
+  // Triangle was checked against all mipmaps but it wasn't occluded by any.
+  return false;
 }
 
 function objectIsOccluded(object){
   var numTrianglesInView = 0;
   mvpMatrix.multiplyMatrices(viewProjectionMatrix, object.matrixWorld);
-  
+
   // TODO: transform all 8 aabb corners first. Then do the following
   for(var i=0; i<object.geometry.faces.length; i++){
     var face = object.geometry.faces[i];

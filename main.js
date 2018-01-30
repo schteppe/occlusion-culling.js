@@ -23,6 +23,7 @@ var mvpMatrix = new THREE.Matrix4();
 var viewMatrix = new THREE.Matrix4();
 var viewProjectionMatrix = new THREE.Matrix4();
 var tempCorners = Array.from(new Array(8), function(){ return new THREE.Vector4(); });
+var sortedBoxes;
 
 function Block(){
   this.coverageMask = 1;
@@ -129,6 +130,9 @@ function init(){
 }
 
 function setNumBoxes(num){
+
+  sortedBoxes = null;
+  
   // Add new boxes
   while(demoBoxes.length < num){
     var size = minBoxSize + Math.random() * (maxBoxSize-minBoxSize);
@@ -358,10 +362,28 @@ function triangleIsOccluded(a,b,c){
   return false;
 }
 
+function insertionSort(a, getSortValue){
+  for(var i=1,l=a.length; i<l; i++) {
+      var v = a[i];
+      for(var j=i - 1;j>=0;j--) {
+          if(getSortValue(a[j]) <= getSortValue(v)){
+              break;
+          }
+          a[j+1] = a[j];
+      }
+      a[j+1] = v;
+  }
+  return a;
+}
+
 function getObjectSize(object){
   tempBBox.setFromObject(object);
   var diagonalLength = tempBBox.min.distanceTo(tempBBox.max);
   return diagonalLength;
+}
+
+function getSortValue(object){
+  return object.position.distanceTo(cameraObject.position) / object.approxSize;
 }
 
 function sortObjectsByDistance(objectA, objectB){
@@ -385,7 +407,8 @@ function updateZPyramid(){
   viewMatrix.copy( camera.matrixWorldInverse );
   viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, viewMatrix );
 
-  boxes.slice(0).sort(sortObjectsByDistance).slice(0,parameters.maxRenderedOccluders).forEach((box) => {
+  if(!sortedBoxes) sortedBoxes = boxes.slice(0);
+  insertionSort(sortedBoxes, getSortValue).slice(0,parameters.maxRenderedOccluders).forEach((box) => {
     mvpMatrix.multiplyMatrices(viewProjectionMatrix, box.matrixWorld);
     box.geometry.faces.forEach((face,faceIndex) => {
       va.copy(box.geometry.vertices[face.a]);

@@ -156,9 +156,7 @@ function setNumBoxes(num){
     demoBox.frustumCulled = box.frustumCulled = false;
     
     // Pre-compute the approx size
-    box.approxSize = getObjectSize(box);
-
-    box.geometry.computeBoundingBox();
+    box.geometry.computeBoundingSphere();
     demoBox.geometry.computeBoundingBox();
   }
 
@@ -376,20 +374,8 @@ function insertionSort(a, getSortValue){
   return a;
 }
 
-function getObjectSize(object){
-  tempBBox.setFromObject(object);
-  var diagonalLength = tempBBox.min.distanceTo(tempBBox.max);
-  return diagonalLength;
-}
-
 function getSortValue(object){
-  return object.position.distanceTo(cameraObject.position) / object.approxSize;
-}
-
-function sortObjectsByDistance(objectA, objectB){
-  var distanceA = objectA.position.distanceTo(cameraObject.position) / objectA.approxSize;
-  var distanceB = objectB.position.distanceTo(cameraObject.position) / objectB.approxSize;
-  return distanceA - distanceB;
+  return object.position.distanceTo(cameraObject.position) / object.geometry.boundingSphere.radius;
 }
 
 function checkBackfaceCulling( v1, v2, v3 ) {

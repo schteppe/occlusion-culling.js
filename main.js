@@ -2,10 +2,11 @@ var blocks, ctx, w, h, numBlocksX, numBlocksY, blockSizeX, blockSizeY, fullyCove
 var data, stats;
 var demoCamera, demoRenderer, demoScene, cameraObject, controls, boxes=[], demoBoxes=[], tempBBox;
 var parameters = {
-  maxRenderedOccluders: 8,
+  maxRenderedOccluders: 16,
   renderMipmaps: true,
   useMipmaps: true,
-  numBoxes: 20
+  numBoxes: 30,
+  renderBackfaces: true
 };
 var minBoxSize = 0.1;
 var maxBoxSize = 1;
@@ -44,10 +45,6 @@ animate();
 
 function init(){
 
-  stats = new Stats();
-  document.body.appendChild( stats.dom );
-  stats.dom.style.top = canvas.height + 'px';
-  
   // Init rendering
   ctx = canvas.getContext('2d');
   w = canvas.width;
@@ -57,6 +54,11 @@ function init(){
   // For mips:
   ctx2 = canvas2.getContext('2d');
   data2 = ctx2.createImageData(w*2,h);
+
+  // Init stats
+  stats = new Stats();
+  document.body.appendChild( stats.dom );
+  stats.dom.style.top = 2*h + 'px';
 
   // Init blocks
   blockSizeX = 1;
@@ -79,7 +81,7 @@ function init(){
 
   renderer = new THREE.WebGLRenderer();
   renderer.setPixelRatio( window.devicePixelRatio );
-  renderer.setSize( w, h );
+  renderer.setSize( 2*w, 2*h );
   renderer.setClearColor( 0x000000, 1 );
   document.getElementById('webglDebugContainer').appendChild( renderer.domElement );
 
@@ -122,6 +124,7 @@ function init(){
   gui.add(parameters, 'maxRenderedOccluders', 0, 100);
   gui.add(parameters, 'renderMipmaps');
   gui.add(parameters, 'useMipmaps');
+  gui.add(parameters, 'renderBackfaces');
   gui.add(parameters, 'numBoxes', 1,3000).onChange(function(newValue){
     setNumBoxes( Math.floor(newValue) );
   });
@@ -132,7 +135,7 @@ function init(){
 function setNumBoxes(num){
 
   sortedBoxes = null;
-  
+
   // Add new boxes
   while(demoBoxes.length < num){
     var size = minBoxSize + Math.random() * (maxBoxSize-minBoxSize);
@@ -141,12 +144,12 @@ function setNumBoxes(num){
     // Create occlusion culling box
     var box = new THREE.Mesh(new THREE.BoxGeometry(occluderScale*size,occluderScale*size,occluderScale*size), new THREE.MeshDepthMaterial()); box.position.set(Math.random()-0.5,0,Math.random()-0.5).multiplyScalar(5);
     box.position.z-=5;
-    //box.position.y=Math.random()-0.5;
     scene.add(box);
     boxes.push(box);
 
     // Create demo box (visual)
-    var demoBox = new THREE.Mesh(new THREE.BoxGeometry(size,size,size), new THREE.MeshLambertMaterial({ color: 0xff0000 })); demoBox.position.copy(box.position);
+    var demoBox = new THREE.Mesh(new THREE.BoxGeometry(size,size,size), new THREE.MeshLambertMaterial({ color: 0xff0000 }));
+    demoBox.position.copy(box.position);
     demoScene.add(demoBox);
     demoBoxes.push(demoBox);
 
@@ -161,11 +164,8 @@ function setNumBoxes(num){
 
   // Remove unused  
   while(demoBoxes.length > num){
-    var demoBox = demoBoxes.pop();
-    demoScene.remove(demoBox);
-
-    var box = boxes.pop();
-    scene.remove(box);
+    demoScene.remove(demoBoxes.pop());
+    scene.remove(boxes.pop());
   }
 }
 
@@ -506,19 +506,20 @@ function drawTriangleToZPyramid(a,b,c){
   ndcTo01(vb,b);
   ndcTo01(vc,c);
 
+  // backface culling
   if(!checkBackfaceCulling(va,vb,vc)){
-    //return; // backface culling
+    if(!parameters.renderBackfaces) return;
 
-    // New: render backfaces:
+    // Flip the triangle to render its back face
     var temp = va;
     va = vb;
     vb = temp;
   }
 
   var triangleZMax = Math.max(va.z, vb.z, vc.z);
-  
-  if(isNaN(triangleZMax)) debugger;
-  
+
+  if(triangleZMax < 0 || triangleZMax > 1) return; // Near/far plane clip
+
   var ax = Math.floor( va.x * w );
   var ay = Math.floor( va.y * h );
   var bx = Math.floor( vb.x * w );

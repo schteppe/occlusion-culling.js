@@ -11,12 +11,21 @@
         var h = 0;
         var fullyCoveredBlock;
 
+        this.renderBackfaces = true;
+
         this.mvpMatrix = [
             1, 0, 0, 0,
             0, 1, 0, 0,
             0, 0, 1, 0,
             0, 0, 0, 1
         ];
+
+        var triangleIsOccluded_va = new THREE.Vector4();
+        var triangleIsOccluded_vb = new THREE.Vector4();
+        var triangleIsOccluded_vc = new THREE.Vector4();
+        var drawTriangleToZPyramid_va = new THREE.Vector4();
+        var drawTriangleToZPyramid_vb = new THREE.Vector4();
+        var drawTriangleToZPyramid_vc = new THREE.Vector4();
 
         this.setResolution = function (width, height) {
             w = width;
@@ -90,7 +99,13 @@
             return false;
         }
 
-        function updateMipMaps() {
+        this.clear = function() {
+            blocks.forEach((b) => {
+                b.clear();
+            });
+        };
+
+        this.updateMipMaps = function() {
             // Update first mipmap
             var mipSize = w;
             for (var py = 0; py < mipSize; py++) {
@@ -124,6 +139,154 @@
                 mipIndex++;
             }
         }
+        
+        this.drawTriangleToZPyramid = function (a, b, c) {
+            var va = drawTriangleToZPyramid_va;
+            var vb = drawTriangleToZPyramid_vb;
+            var vc = drawTriangleToZPyramid_vc;
+
+            // Convert to screen space (0 to 1)
+            ndcTo01(va, a);
+            ndcTo01(vb, b);
+            ndcTo01(vc, c);
+
+            // backface culling
+            if (!checkBackfaceCulling(va, vb, vc)) {
+                if (!this.renderBackfaces) return;
+
+                // Flip the triangle to render its back face
+                var temp = va;
+                va = vb;
+                vb = temp;
+            }
+
+            var triangleZMax = Math.max(va.z, vb.z, vc.z);
+
+            if (triangleZMax < 0 || triangleZMax > 1) return; // Near/far plane clip
+
+            var ax = Math.floor(va.x * w);
+            var ay = Math.floor(va.y * h);
+            var bx = Math.floor(vb.x * w);
+            var by = Math.floor(vb.y * h);
+            var cx = Math.floor(vc.x * w);
+            var cy = Math.floor(vc.y * h);
+
+            // Get xy bounds for triangle
+            var minx = Math.min(ax, bx, cx);
+            var maxx = Math.max(ax, bx, cx);
+            var miny = Math.min(ay, by, cy);
+            var maxy = Math.max(ay, by, cy);
+
+            if (maxx < 0 || maxy < 0 || minx > w || miny > h) {
+                return false; // out of screen. Dont render!
+            }
+
+            minx = clamp(minx, 0, w);
+            maxx = clamp(maxx, 0, w);
+            miny = clamp(miny, 0, h);
+            maxy = clamp(maxy, 0, h);
+            var jmin = Math.floor(miny / blockSizeY);
+            var jmax = Math.ceil(maxy / blockSizeY);
+            var loops = 0;
+            for (var j = jmin; j < jmax; j++) {
+                var y = blockSizeY * j / h;
+                var xIntersect0 = getXAxisIntersection(va.x, va.y, vb.x, vb.y, y);
+                var xIntersect1 = getXAxisIntersection(vb.x, vb.y, vc.x, vc.y, y);
+                var xIntersect2 = getXAxisIntersection(vc.x, vc.y, va.x, va.y, y);
+
+                var kmin = Math.floor(minx / blockSizeX);
+                var kmax = Math.ceil(maxx / blockSizeX);
+                for (var k = kmin; k < kmax; k++) {
+                    var blockIndex = j * numBlocksX + k;
+                    var block = blocks[blockIndex];
+
+                    var x = blockSizeX * k / w;
+
+                    var mask0 = getLineMask(va.x, va.y, vb.x, vb.y, vc.x, vc.y, x, y, xIntersect0);
+                    var mask1 = getLineMask(vb.x, vb.y, vc.x, vc.y, va.x, va.y, x, y, xIntersect1);
+                    var mask2 = getLineMask(vc.x, vc.y, va.x, va.y, vb.x, vb.y, x, y, xIntersect2);
+
+                    var triangleCoverageMask = mask0 & mask1 & mask2;
+                    updateHiZBuffer(block, triangleZMax, triangleCoverageMask);
+                }
+            }
+        }
+
+        this.triangleIsOccluded = function(a, b, c) {
+            var va = triangleIsOccluded_va;
+            var vb = triangleIsOccluded_vb;
+            var vc = triangleIsOccluded_vc;
+
+            // Convert to screen space (0 to 1)
+            ndcTo01(va, a);
+            ndcTo01(vb, b);
+            ndcTo01(vc, c);
+
+            var triangleClosestDepth = Math.min(va.z, vb.z, vc.z);
+            for (var i = mipmaps.length - 1; i >= 0; i--) {
+                var mipmap = mipmaps[i];
+                var mipMapSize = Math.sqrt(mipmap.length); // TODO: Support non-square
+
+                var ax = Math.floor(va.x * mipMapSize);
+                var ay = Math.floor(va.y * mipMapSize);
+                var bx = Math.floor(vb.x * mipMapSize);
+                var by = Math.floor(vb.y * mipMapSize);
+                var cx = Math.floor(vc.x * mipMapSize);
+                var cy = Math.floor(vc.y * mipMapSize);
+
+                // TODO: this can probably be done once for the largest mip. And then divided by 2 per step.
+                // Get xy bounds for triangle
+                var minx = Math.min(ax, bx, cx);
+                var maxx = Math.max(ax, bx, cx);
+                var miny = Math.min(ay, by, cy);
+                var maxy = Math.max(ay, by, cy);
+                if (maxx < 0 || maxy < 0 || minx >= mipMapSize || miny >= mipMapSize) {
+                    return false; // triangle is out of the screen. Can't determine if it's occluded. Should not cull!
+                }
+
+                minx = clamp(minx, 0, mipMapSize - 1);
+                maxx = clamp(maxx, 0, mipMapSize - 1);
+                miny = clamp(miny, 0, mipMapSize - 1);
+                maxy = clamp(maxy, 0, mipMapSize - 1);
+
+                var behindOccluder = false;
+                for (var x = minx; x <= maxx; x++) {
+                    for (var y = miny; y <= maxy; y++) {
+                        var depth = mipmap[y * mipMapSize + x];
+                        if (triangleClosestDepth > depth) {
+                            // triangle is behind occluder. Triangle is definitely occluded and we dont need to check next mipmap!
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            // Triangle was checked against all mipmaps but it wasn't occluded by any.
+            return false;
+        }
+
+        this.renderToImageDataArray = function(array){
+            // Render mips
+            var mipSize = w;
+            var mipIndex = 0;
+            var dataX = 0;
+            while(mipSize>2){
+                for(var py=0; py<mipSize; py++){
+                for(var px=0; px<mipSize; px++){
+                    var mipPosition = py*mipSize + px;
+                    var depth = mipmaps[mipIndex][mipPosition];
+                    var dataOffset = 4*((mipSize-py-1)*w*2 + dataX+px); // render upside down
+                    array[dataOffset+0] = 255*depth;
+                    array[dataOffset+1] = 255*depth;
+                    array[dataOffset+2] = 255*depth;
+                    array[dataOffset+3] = 255;
+                }
+                }
+                dataX += mipSize;
+                mipSize /= 2;
+                mipIndex++;
+            }
+        }
     }
 
     function Block() {
@@ -141,6 +304,7 @@
     };
 
 
+    // TODO: should take a list of triangles and a matrix as arguments.
     function objectIsOccluded(object) {
         var numTrianglesInView = 0;
         mvpMatrix.multiplyMatrices(viewProjectionMatrix, object.matrixWorld);
@@ -176,71 +340,12 @@
         return numTrianglesInView > 0;
     }
 
-    function triangleIsOccluded(a, b, c) {
-        var va = triangleIsOccluded_va;
-        var vb = triangleIsOccluded_vb;
-        var vc = triangleIsOccluded_vc;
-
-        // Convert to screen space (0 to 1)
-        ndcTo01(va, a);
-        ndcTo01(vb, b);
-        ndcTo01(vc, c);
-
-        var triangleClosestDepth = Math.min(va.z, vb.z, vc.z);
-        for (var i = parameters.useMipmaps ? mipmaps.length - 1 : 0; i >= 0; i--) {
-            var mipmap = mipmaps[i];
-            var mipMapSize = Math.sqrt(mipmap.length); // TODO: Support non-square
-
-            var ax = Math.floor(va.x * mipMapSize);
-            var ay = Math.floor(va.y * mipMapSize);
-            var bx = Math.floor(vb.x * mipMapSize);
-            var by = Math.floor(vb.y * mipMapSize);
-            var cx = Math.floor(vc.x * mipMapSize);
-            var cy = Math.floor(vc.y * mipMapSize);
-
-            // TODO: this can probably be done once for the largest mip. And then divided by 2 per step.
-            // Get xy bounds for triangle
-            var minx = Math.min(ax, bx, cx);
-            var maxx = Math.max(ax, bx, cx);
-            var miny = Math.min(ay, by, cy);
-            var maxy = Math.max(ay, by, cy);
-            if (maxx < 0 || maxy < 0 || minx >= mipMapSize || miny >= mipMapSize) {
-                return false; // triangle is out of the screen. Can't determine if it's occluded. Should not cull!
-            }
-
-            minx = clamp(minx, 0, mipMapSize - 1);
-            maxx = clamp(maxx, 0, mipMapSize - 1);
-            miny = clamp(miny, 0, mipMapSize - 1);
-            maxy = clamp(maxy, 0, mipMapSize - 1);
-
-            var behindOccluder = false;
-            for (var x = minx; x <= maxx; x++) {
-                for (var y = miny; y <= maxy; y++) {
-                    var depth = mipmap[y * mipMapSize + x];
-                    if (triangleClosestDepth > depth) {
-                        // triangle is behind occluder. Triangle is definitely occluded and we dont need to check next mipmap!
-                        return true;
-                    }
-                }
-            }
-        }
-
-        // Triangle was checked against all mipmaps but it wasn't occluded by any.
-        return false;
-    }
-
 
     function checkBackfaceCulling(v1, v2, v3) {
         return ((v3.x - v1.x) * (v2.y - v1.y) - (v3.y - v1.y) * (v2.x - v1.x)) < 0;
     }
     function clamp(x, min, max) { return Math.min(Math.max(x, min), max); }
-    function clearZPyramid() {
-        blocks.forEach((b) => {
-            b.clear();
-        });
-    }
-
-
+    
     function ndcTriangleIsInUnitBox(a, b, c) {
         return (
             (Math.min(a.x, b.x, c.x) > -1 && Math.max(a.x, b.x, c.x) < 1) ||
@@ -270,78 +375,6 @@
         out.x = (point.x + 1) * 0.5;
         out.y = (point.y + 1) * 0.5;
         out.z = (point.z + 1) * 0.5;
-    }
-
-    function drawTriangleToZPyramid(a, b, c) {
-        var va = drawTriangleToZPyramid_va;
-        var vb = drawTriangleToZPyramid_vb;
-        var vc = drawTriangleToZPyramid_vc;
-
-        // Convert to screen space (0 to 1)
-        ndcTo01(va, a);
-        ndcTo01(vb, b);
-        ndcTo01(vc, c);
-
-        // backface culling
-        if (!checkBackfaceCulling(va, vb, vc)) {
-            if (!parameters.renderBackfaces) return;
-
-            // Flip the triangle to render its back face
-            var temp = va;
-            va = vb;
-            vb = temp;
-        }
-
-        var triangleZMax = Math.max(va.z, vb.z, vc.z);
-
-        if (triangleZMax < 0 || triangleZMax > 1) return; // Near/far plane clip
-
-        var ax = Math.floor(va.x * w);
-        var ay = Math.floor(va.y * h);
-        var bx = Math.floor(vb.x * w);
-        var by = Math.floor(vb.y * h);
-        var cx = Math.floor(vc.x * w);
-        var cy = Math.floor(vc.y * h);
-
-        // Get xy bounds for triangle
-        var minx = Math.min(ax, bx, cx);
-        var maxx = Math.max(ax, bx, cx);
-        var miny = Math.min(ay, by, cy);
-        var maxy = Math.max(ay, by, cy);
-
-        if (maxx < 0 || maxy < 0 || minx > w || miny > h) {
-            return false; // out of screen. Dont render!
-        }
-
-        minx = clamp(minx, 0, w);
-        maxx = clamp(maxx, 0, w);
-        miny = clamp(miny, 0, h);
-        maxy = clamp(maxy, 0, h);
-        var jmin = Math.floor(miny / blockSizeY);
-        var jmax = Math.ceil(maxy / blockSizeY);
-        var loops = 0;
-        for (var j = jmin; j < jmax; j++) {
-            var y = blockSizeY * j / h;
-            var xIntersect0 = getXAxisIntersection(va.x, va.y, vb.x, vb.y, y);
-            var xIntersect1 = getXAxisIntersection(vb.x, vb.y, vc.x, vc.y, y);
-            var xIntersect2 = getXAxisIntersection(vc.x, vc.y, va.x, va.y, y);
-
-            var kmin = Math.floor(minx / blockSizeX);
-            var kmax = Math.ceil(maxx / blockSizeX);
-            for (var k = kmin; k < kmax; k++) {
-                var blockIndex = j * numBlocksX + k;
-                var block = blocks[blockIndex];
-
-                var x = blockSizeX * k / w;
-
-                var mask0 = getLineMask(va.x, va.y, vb.x, vb.y, vc.x, vc.y, x, y, xIntersect0);
-                var mask1 = getLineMask(vb.x, vb.y, vc.x, vc.y, va.x, va.y, x, y, xIntersect1);
-                var mask2 = getLineMask(vc.x, vc.y, va.x, va.y, vb.x, vb.y, x, y, xIntersect2);
-
-                var triangleCoverageMask = mask0 & mask1 & mask2;
-                updateHiZBuffer(block, triangleZMax, triangleCoverageMask);
-            }
-        }
     }
 
     function getXAxisIntersection(ax, ay, bx, by, y) {

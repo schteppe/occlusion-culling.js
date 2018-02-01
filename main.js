@@ -94,6 +94,15 @@ function init(){
 function setNumBoxes(num){
 
   sortedBoxes = null;
+  
+  // TODO: switch to buffer geometry. Then they can be passed directly to the OcclusionCulling API
+  /*
+  var box = new THREE.BoxBufferGeometry(1,1,1); 
+  box.index.array // indices
+  box.attributes.position.array // vertices
+
+  // Also, should stop using threejs matrices/vectors and instead use arrays. Can use threeMatrix.elements in the case of matrices.
+  */
 
   // Add new boxes
   while(demoBoxes.length < num){

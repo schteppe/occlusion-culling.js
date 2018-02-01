@@ -13,13 +13,7 @@
 
         this.renderBackfaces = true;
 
-        this.mvpMatrix = [
-            1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 1, 0,
-            0, 0, 0, 1
-        ];
-
+        // TODO: use own vectors. glMatrix?
         var triangleIsOccluded_va = new THREE.Vector4();
         var triangleIsOccluded_vb = new THREE.Vector4();
         var triangleIsOccluded_vc = new THREE.Vector4();

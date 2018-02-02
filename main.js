@@ -110,13 +110,13 @@ function setNumBoxes(num){
     var occluderScale = 0.9; // Make occluders slightly smaller than the rendered meshes.
 
     // Create occlusion culling box
-    var box = new THREE.Mesh(new THREE.BoxGeometry(occluderScale*size,occluderScale*size,occluderScale*size), new THREE.MeshDepthMaterial()); box.position.set(Math.random()-0.5,0,Math.random()-0.5).multiplyScalar(5);
+    var box = new THREE.Mesh(new THREE.BoxBufferGeometry(occluderScale*size,occluderScale*size,occluderScale*size), new THREE.MeshDepthMaterial()); box.position.set(Math.random()-0.5,0,Math.random()-0.5).multiplyScalar(5);
     box.position.z-=5;
     scene.add(box);
     boxes.push(box);
 
     // Create demo box (visual)
-    var demoBox = new THREE.Mesh(new THREE.BoxGeometry(size,size,size), new THREE.MeshLambertMaterial({ color: 0xff0000 }));
+    var demoBox = new THREE.Mesh(new THREE.BoxBufferGeometry(size,size,size), new THREE.MeshLambertMaterial({ color: 0xff0000 }));
     demoBox.position.copy(box.position);
     demoScene.add(demoBox);
     demoBoxes.push(demoBox);
@@ -218,10 +218,13 @@ function updateZPyramid(){
   if(!sortedBoxes) sortedBoxes = boxes.slice(0);
   insertionSort(sortedBoxes, getSortValue).slice(0,parameters.maxRenderedOccluders).forEach((box) => {
     mvpMatrix.multiplyMatrices(viewProjectionMatrix, box.matrixWorld);
-    box.geometry.faces.forEach((face,faceIndex) => {
-      va.copy(box.geometry.vertices[face.a]);
-      vb.copy(box.geometry.vertices[face.b]);
-      vc.copy(box.geometry.vertices[face.c]);
+    
+    var indices = box.geometry.index.array;
+    var vertices = box.geometry.attributes.position.array;
+    for(var i=0; i<indices.length; i+=3){
+      va.set(vertices[indices[i+0]*3+0], vertices[indices[i+0]*3+1], vertices[indices[i+0]*3+2],1);
+      vb.set(vertices[indices[i+1]*3+0], vertices[indices[i+1]*3+1], vertices[indices[i+1]*3+2],1);
+      vc.set(vertices[indices[i+2]*3+0], vertices[indices[i+2]*3+1], vertices[indices[i+2]*3+2],1);
       va.w = vb.w = vc.w = 1;
       va.applyMatrix4( mvpMatrix );
       vb.applyMatrix4( mvpMatrix );
@@ -233,7 +236,7 @@ function updateZPyramid(){
       if(ndcTriangleIsInUnitBox(va,vb,vc)){
         occlusionCulling.drawTriangleToZPyramid(va,vb,vc);
       }
-    });
+    }
   });
   occlusionCulling.updateMipMaps();
 }

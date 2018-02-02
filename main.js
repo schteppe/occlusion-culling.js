@@ -92,17 +92,7 @@ function init(){
 }
 
 function setNumBoxes(num){
-
   sortedBoxes = null;
-  
-  // TODO: switch to buffer geometry. Then they can be passed directly to the OcclusionCulling API
-  /*
-  var box = new THREE.BoxBufferGeometry(1,1,1); 
-  box.index.array // indices
-  box.attributes.position.array // vertices
-
-  // Also, should stop using threejs matrices/vectors and instead use arrays. Can use threeMatrix.elements in the case of matrices.
-  */
 
   // Add new boxes
   while(demoBoxes.length < num){
@@ -146,18 +136,15 @@ function animate(time){
 }
 
 function cullObjects(){
-  //scene.updateMatrixWorld();
-  //camera.updateMatrixWorld();
-  viewMatrix.copy( camera.matrixWorldInverse );
-  viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, viewMatrix );
+  viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, camera.matrixWorldInverse );
   var numVisible = 0;
   for(var i=0; i<boxes.length; i++){
-       boxes[i].visible = demoBoxes[i].visible = !objectIsOccluded2(demoBoxes[i]);
+       boxes[i].visible = demoBoxes[i].visible = !objectIsOccluded(demoBoxes[i]);
       if(boxes[i].visible) numVisible++;
   }
 }
 
-function objectIsOccluded2(object){
+function objectIsOccluded(object){
   mvpMatrix.multiplyMatrices(viewProjectionMatrix, object.matrixWorld);
 
   // Compute the bounding rectangle in screen space by using the bounding box.
@@ -210,10 +197,7 @@ function getSortValue(object){
 }
 
 function updateZPyramid(){
-  //scene.updateMatrixWorld();
-  //camera.updateMatrixWorld();
-  viewMatrix.copy( camera.matrixWorldInverse );
-  viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, viewMatrix );
+  viewProjectionMatrix.multiplyMatrices( camera.projectionMatrix, camera.matrixWorldInverse );
 
   if(!sortedBoxes) sortedBoxes = boxes.slice(0);
   insertionSort(sortedBoxes, getSortValue).slice(0,parameters.maxRenderedOccluders).forEach((box) => {
@@ -221,32 +205,9 @@ function updateZPyramid(){
     
     var indices = box.geometry.index.array;
     var vertices = box.geometry.attributes.position.array;
-    for(var i=0; i<indices.length; i+=3){
-      va.set(vertices[indices[i+0]*3+0], vertices[indices[i+0]*3+1], vertices[indices[i+0]*3+2],1);
-      vb.set(vertices[indices[i+1]*3+0], vertices[indices[i+1]*3+1], vertices[indices[i+1]*3+2],1);
-      vc.set(vertices[indices[i+2]*3+0], vertices[indices[i+2]*3+1], vertices[indices[i+2]*3+2],1);
-      va.w = vb.w = vc.w = 1;
-      va.applyMatrix4( mvpMatrix );
-      vb.applyMatrix4( mvpMatrix );
-      vc.applyMatrix4( mvpMatrix );
-      va.divideScalar(va.w);
-      vb.divideScalar(vb.w);
-      vc.divideScalar(vc.w);
-
-      if(ndcTriangleIsInUnitBox(va,vb,vc)){
-        occlusionCulling.drawTriangleToZPyramid(va,vb,vc);
-      }
-    }
+    occlusionCulling.renderTriangles( indices, vertices, mvpMatrix.elements );
   });
-  occlusionCulling.updateMipMaps();
-}
-
-function ndcTriangleIsInUnitBox(a,b,c){
-  return (
-    (Math.min(a.x,b.x,c.x) > -1 && Math.max(a.x,b.x,c.x) < 1) ||
-    (Math.min(a.y,b.y,c.y) > -1 && Math.max(a.y,b.y,c.y) < 1) ||
-    (Math.min(a.z,b.z,c.z) > -1 && Math.max(a.z,b.z,c.z) < 1)
-  );
+  occlusionCulling.updateMipMaps(); // TODO: should update transparently
 }
 
 function render(time){

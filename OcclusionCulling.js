@@ -56,6 +56,8 @@
 
             closestDepth = (closestDepth + 1) * 0.5;
 
+            if(closestDepth > 1) return false;
+
             for (var i = mipmaps.length - 1; i >= 0; i--) {
                 var mipmap = mipmaps[i];
                 var mipMapSize = Math.sqrt(mipmap.length); // TODO: Support non-square
@@ -134,6 +136,35 @@
             }
         }
         
+        function applyMatrix4ToVector4(vector, matrix){
+            var x = vector.x, y = vector.y, z = vector.z, w = vector.w;
+            var e = matrix;
+
+            vector.x = e[ 0 ] * x + e[ 4 ] * y + e[ 8 ] * z + e[ 12 ] * w;
+            vector.y = e[ 1 ] * x + e[ 5 ] * y + e[ 9 ] * z + e[ 13 ] * w;
+            vector.z = e[ 2 ] * x + e[ 6 ] * y + e[ 10 ] * z + e[ 14 ] * w;
+            vector.w = e[ 3 ] * x + e[ 7 ] * y + e[ 11 ] * z + e[ 15 ] * w;
+        }
+
+        this.renderTriangles = function( indices, vertices, matrix ){
+            for(var i=0; i<indices.length; i+=3){
+                va.set(vertices[indices[i+0]*3+0], vertices[indices[i+0]*3+1], vertices[indices[i+0]*3+2],1);
+                vb.set(vertices[indices[i+1]*3+0], vertices[indices[i+1]*3+1], vertices[indices[i+1]*3+2],1);
+                vc.set(vertices[indices[i+2]*3+0], vertices[indices[i+2]*3+1], vertices[indices[i+2]*3+2],1);
+                va.w = vb.w = vc.w = 1;
+                applyMatrix4ToVector4( va, matrix );
+                applyMatrix4ToVector4( vb, matrix );
+                applyMatrix4ToVector4( vc, matrix );
+                va.divideScalar(va.w);
+                vb.divideScalar(vb.w);
+                vc.divideScalar(vc.w);
+        
+                if(ndcTriangleIsInUnitBox(va,vb,vc)){
+                    this.drawTriangleToZPyramid(va,vb,vc);
+                }
+            }
+        };
+
         this.drawTriangleToZPyramid = function (a, b, c) {
             var va = drawTriangleToZPyramid_va;
             var vb = drawTriangleToZPyramid_vb;

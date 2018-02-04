@@ -1,7 +1,7 @@
 var occlusionCulling;
-var ctx2, w, h, camera, renderer, scene;
-var stats, data2;
-var demoCamera, demoRenderer, demoScene, cameraObject, controls, boxes=[], demoBoxes=[], tempBBox;
+var ctx, w, h, camera, renderer, scene;
+var stats, data;
+var demoCamera, demoRenderer, demoScene, cameraObject, controls, boxes=[], demoBoxes=[], sortedBoxes, tempBBox;
 var parameters = {
   maxRenderedOccluders: 16,
   renderMipmaps: true,
@@ -13,10 +13,8 @@ var va = new THREE.Vector4();
 var vb = new THREE.Vector4();
 var vc = new THREE.Vector4();
 var mvpMatrix = new THREE.Matrix4();
-var viewMatrix = new THREE.Matrix4();
 var viewProjectionMatrix = new THREE.Matrix4();
 var tempCorners = Array.from(new Array(8), function(){ return new THREE.Vector4(); });
-var sortedBoxes;
 
 init();
 animate();
@@ -28,8 +26,8 @@ function init(){
   h = canvas.height;
 
   // For mips:
-  ctx2 = canvas2.getContext('2d');
-  data2 = ctx2.createImageData(w*2,h);
+  ctx = canvas2.getContext('2d');
+  data = ctx.createImageData(w*2,h);
 
   // Init stats
   stats = new Stats();
@@ -112,13 +110,13 @@ function setNumBoxes(num){
     demoBoxes.push(demoBox);
 
     demoBox.frustumCulled = box.frustumCulled = false;
-    
+
     // Pre-compute the approx size
     box.geometry.computeBoundingSphere();
     demoBox.geometry.computeBoundingBox();
   }
 
-  // Remove unused  
+  // Remove unused
   while(demoBoxes.length > num){
     demoScene.remove(demoBoxes.pop());
     scene.remove(boxes.pop());
@@ -202,7 +200,7 @@ function updateZPyramid(){
   if(!sortedBoxes) sortedBoxes = boxes.slice(0);
   insertionSort(sortedBoxes, getSortValue).slice(0,parameters.maxRenderedOccluders).forEach((box) => {
     mvpMatrix.multiplyMatrices(viewProjectionMatrix, box.matrixWorld);
-    
+
     var indices = box.geometry.index.array;
     var vertices = box.geometry.attributes.position.array;
     occlusionCulling.renderTriangles( indices, vertices, mvpMatrix.elements );
@@ -219,7 +217,7 @@ function render(time){
 	demoRenderer.render( demoScene, demoCamera );
 
   if(parameters.renderMipmaps){
-    occlusionCulling.renderToImageDataArray(data2.data);
-    ctx2.putImageData(data2,0,0); 
+    occlusionCulling.renderToImageDataArray(data.data);
+    ctx.putImageData(data,0,0);
   }
 }

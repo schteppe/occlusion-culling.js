@@ -14,9 +14,9 @@
         this.renderBackfaces = true;
 
         // TODO: use own vectors. glMatrix?
-        var triangleIsOccluded_va = new THREE.Vector4();
-        var triangleIsOccluded_vb = new THREE.Vector4();
-        var triangleIsOccluded_vc = new THREE.Vector4();
+        var triangleIsOccluded_va = [0,0,0,1];
+        var triangleIsOccluded_vb = [0,0,0,1];
+        var triangleIsOccluded_vc = [0,0,0,1];
         var drawTriangleToZPyramid_va = [0,0,0,1];
         var drawTriangleToZPyramid_vb = [0,0,0,1];
         var drawTriangleToZPyramid_vc = [0,0,0,1];
@@ -261,21 +261,21 @@
             var vc = triangleIsOccluded_vc;
 
             // Convert to screen space (0 to 1)
-            ndcTo01(va, a);
-            ndcTo01(vb, b);
-            ndcTo01(vc, c);
+            ndcTo01ArrayVector(va, a);
+            ndcTo01ArrayVector(vb, b);
+            ndcTo01ArrayVector(vc, c);
 
-            var triangleClosestDepth = Math.min(va.z, vb.z, vc.z);
+            var triangleClosestDepth = Math.min(va[0], vb[0], vc[0]);
             for (var i = mipmaps.length - 1; i >= 0; i--) {
                 var mipmap = mipmaps[i];
                 var mipMapSize = Math.sqrt(mipmap.length); // TODO: Support non-square
 
-                var ax = Math.floor(va.x * mipMapSize);
-                var ay = Math.floor(va.y * mipMapSize);
-                var bx = Math.floor(vb.x * mipMapSize);
-                var by = Math.floor(vb.y * mipMapSize);
-                var cx = Math.floor(vc.x * mipMapSize);
-                var cy = Math.floor(vc.y * mipMapSize);
+                var ax = Math.floor(va[0] * mipMapSize);
+                var ay = Math.floor(va[1] * mipMapSize);
+                var bx = Math.floor(vb[0] * mipMapSize);
+                var by = Math.floor(vb[1] * mipMapSize);
+                var cx = Math.floor(vc[0] * mipMapSize);
+                var cy = Math.floor(vc[1] * mipMapSize);
 
                 // TODO: this can probably be done once for the largest mip. And then divided by 2 per step.
                 // Get xy bounds for triangle
@@ -347,27 +347,24 @@
     };
 
 
-    // TODO: should take a list of triangles and a matrix as arguments.
-    function objectIsOccluded(object) {
+    function objectIsOccluded( indices, vertices, matrix ) {
         var numTrianglesInView = 0;
-        mvpMatrix.multiplyMatrices(viewProjectionMatrix, object.matrixWorld);
 
-        // TODO: transform all 8 aabb corners first. Then do the following
-        for (var i = 0; i < object.geometry.faces.length; i++) {
-            var face = object.geometry.faces[i];
-            va.copy(object.geometry.vertices[face.a]);
-            vb.copy(object.geometry.vertices[face.b]);
-            vc.copy(object.geometry.vertices[face.c]);
-            va.w = vb.w = vc.w = 1;
-            va.applyMatrix4(mvpMatrix);
-            vb.applyMatrix4(mvpMatrix);
-            vc.applyMatrix4(mvpMatrix);
-            va.divideScalar(va.w);
-            vb.divideScalar(vb.w);
-            vc.divideScalar(vc.w);
+        var va = objectIsOccluded_va;
+        var vb = objectIsOccluded_vb;
+        var vc = objectIsOccluded_vc;
+        for(var i=0; i<indices.length; i+=3){
+            vectorSet(va, vertices[indices[i+0]*3+0], vertices[indices[i+0]*3+1], vertices[indices[i+0]*3+2],1);
+            vectorSet(vb, vertices[indices[i+1]*3+0], vertices[indices[i+1]*3+1], vertices[indices[i+1]*3+2],1);
+            vectorSet(vc, vertices[indices[i+2]*3+0], vertices[indices[i+2]*3+1], vertices[indices[i+2]*3+2],1);
+            applyMatrix4ToVector4( va, matrix );
+            applyMatrix4ToVector4( vb, matrix );
+            applyMatrix4ToVector4( vc, matrix );
+            vectorDivideScalar(va,va[3]); //divide by w
+            vectorDivideScalar(vb,vb[3]);
+            vectorDivideScalar(vc,vc[3]);
 
-            // Within the clipping box?
-            if (!ndcTriangleIsInUnitBox(va, vb, vc)) {
+            if(!ndcTriangleIsInUnitBoxArray(va,vb,vc)){
                 continue;
             }
 
@@ -377,25 +374,15 @@
             if (!triangleIsOccluded(va, vb, vc)) {
                 return false;
             }
+            // If at least one triangle is in view, but we get here, it means that it was occluded
+            return numTrianglesInView > 0;
         }
-
-        // If at least one triangle is in view, but we get here, it means that it was occluded
-        return numTrianglesInView > 0;
     }
-
 
     function checkBackfaceCullingArray(v1, v2, v3) {
         return ((v3[0] - v1[0]) * (v2[1] - v1[1]) - (v3[1] - v1[1]) * (v2[0] - v1[0])) < 0;
     }
     function clamp(x, min, max) { return Math.min(Math.max(x, min), max); }
-
-    function ndcTriangleIsInUnitBox(a, b, c) {
-        return (
-            (Math.min(a.x, b.x, c.x) > -1 && Math.max(a.x, b.x, c.x) < 1) ||
-            (Math.min(a.y, b.y, c.y) > -1 && Math.max(a.y, b.y, c.y) < 1) ||
-            (Math.min(a.z, b.z, c.z) > -1 && Math.max(a.z, b.z, c.z) < 1)
-        );
-    }
     function ndcTriangleIsInUnitBoxArray(a, b, c) {
         return (
             (Math.min(a[0], b[0], c[0]) > -1 && Math.max(a[0], b[0], c[0]) < 1) ||
@@ -419,12 +406,6 @@
             block.zMax1 = 0;
             block.coverageMask = 0;
         }
-    }
-
-    function ndcTo01(out, point) {
-        out.x = (point.x + 1) * 0.5;
-        out.y = (point.y + 1) * 0.5;
-        out.z = (point.z + 1) * 0.5;
     }
 
     function ndcTo01ArrayVector(out, point) {

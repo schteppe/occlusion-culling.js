@@ -10,6 +10,7 @@
         var w = 0;
         var h = 0;
         var fullyCoveredBlock;
+        var mipMapsDirty = true;
 
         this.renderBackfaces = true;
 
@@ -47,9 +48,12 @@
                 mipmaps.push(new Float32Array(mipSize * mipSize));
                 mipSize /= 2;
             }
+            mipMapsDirty = true;
         }
 
         this.ndcRectIsOccluded = function (x0, x1, y0, y1, closestDepth) {
+
+            updateMipMaps();
 
             // Convert to screen space (0 to 1)
             x0 = (x0 + 1) * 0.5;
@@ -104,7 +108,9 @@
             });
         };
 
-        this.updateMipMaps = function() {
+        function updateMipMaps() {
+            if(!mipMapsDirty) return;
+
             // Update first mipmap
             var mipSize = w;
             for (var py = 0; py < mipSize; py++) {
@@ -137,6 +143,8 @@
                 mipSize /= 2;
                 mipIndex++;
             }
+
+            mipMapsDirty = false;
         }
 
         function applyMatrix4ToVector4(vector, matrix){
@@ -163,6 +171,8 @@
         }
 
         this.renderTriangles = function( indices, vertices, matrix ){
+            mipMapsDirty = true;
+
             var va = renderTriangles_va;
             var vb = renderTriangles_vb;
             var vc = renderTriangles_vc;
@@ -184,6 +194,8 @@
         };
 
         this.drawTriangleToZPyramid = function (a, b, c) {
+            mipMapsDirty = true;
+
             var va = drawTriangleToZPyramid_va;
             var vb = drawTriangleToZPyramid_vb;
             var vc = drawTriangleToZPyramid_vc;
@@ -256,6 +268,8 @@
         }
 
         this.triangleIsOccluded = function(a, b, c) {
+            updateMipMaps();
+
             var va = triangleIsOccluded_va;
             var vb = triangleIsOccluded_vb;
             var vc = triangleIsOccluded_vc;
@@ -384,6 +398,8 @@
 
 
     function objectIsOccluded( indices, vertices, matrix ) {
+        updateMipMaps();
+
         var numTrianglesInView = 0;
 
         var va = objectIsOccluded_va;

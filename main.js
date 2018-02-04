@@ -205,7 +205,6 @@ function updateZPyramid(){
     var vertices = box.geometry.attributes.position.array;
     occlusionCulling.renderTriangles( indices, vertices, mvpMatrix.elements );
   });
-  occlusionCulling.updateMipMaps(); // TODO: should update transparently
 }
 
 function render(time){

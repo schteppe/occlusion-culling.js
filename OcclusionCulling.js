@@ -26,7 +26,7 @@
             h = height;
 
             // Init blocks
-            blockSizeX = 1;
+            blockSizeX = 32;
             blockSizeY = 1;
             blocks.length = 0;
             numBlocksX = Math.ceil(w / blockSizeX);
@@ -135,7 +135,7 @@
                 mipIndex++;
             }
         }
-        
+
         function applyMatrix4ToVector4(vector, matrix){
             var x = vector.x, y = vector.y, z = vector.z, w = vector.w;
             var e = matrix;
@@ -158,7 +158,7 @@
                 va.divideScalar(va.w);
                 vb.divideScalar(vb.w);
                 vc.divideScalar(vc.w);
-        
+
                 if(ndcTriangleIsInUnitBox(va,vb,vc)){
                     this.drawTriangleToZPyramid(va,vb,vc);
                 }
@@ -370,7 +370,7 @@
         return ((v3.x - v1.x) * (v2.y - v1.y) - (v3.y - v1.y) * (v2.x - v1.x)) < 0;
     }
     function clamp(x, min, max) { return Math.min(Math.max(x, min), max); }
-    
+
     function ndcTriangleIsInUnitBox(a, b, c) {
         return (
             (Math.min(a.x, b.x, c.x) > -1 && Math.max(a.x, b.x, c.x) < 1) ||

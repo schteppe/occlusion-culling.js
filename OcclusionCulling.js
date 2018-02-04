@@ -17,9 +17,12 @@
         var triangleIsOccluded_va = new THREE.Vector4();
         var triangleIsOccluded_vb = new THREE.Vector4();
         var triangleIsOccluded_vc = new THREE.Vector4();
-        var drawTriangleToZPyramid_va = new THREE.Vector4();
-        var drawTriangleToZPyramid_vb = new THREE.Vector4();
-        var drawTriangleToZPyramid_vc = new THREE.Vector4();
+        var drawTriangleToZPyramid_va = [0,0,0,1];
+        var drawTriangleToZPyramid_vb = [0,0,0,1];
+        var drawTriangleToZPyramid_vc = [0,0,0,1];
+        var renderTriangles_va = [0,0,0,1];
+        var renderTriangles_vb = [0,0,0,1];
+        var renderTriangles_vc = [0,0,0,1];
 
         this.setResolution = function (width, height) {
             w = width;
@@ -137,29 +140,44 @@
         }
 
         function applyMatrix4ToVector4(vector, matrix){
-            var x = vector.x, y = vector.y, z = vector.z, w = vector.w;
+            var x = vector[0], y = vector[1], z = vector[2], w = vector[3];
             var e = matrix;
 
-            vector.x = e[ 0 ] * x + e[ 4 ] * y + e[ 8 ] * z + e[ 12 ] * w;
-            vector.y = e[ 1 ] * x + e[ 5 ] * y + e[ 9 ] * z + e[ 13 ] * w;
-            vector.z = e[ 2 ] * x + e[ 6 ] * y + e[ 10 ] * z + e[ 14 ] * w;
-            vector.w = e[ 3 ] * x + e[ 7 ] * y + e[ 11 ] * z + e[ 15 ] * w;
+            vector[0] = e[ 0 ] * x + e[ 4 ] * y + e[ 8 ] * z + e[ 12 ] * w;
+            vector[1] = e[ 1 ] * x + e[ 5 ] * y + e[ 9 ] * z + e[ 13 ] * w;
+            vector[2] = e[ 2 ] * x + e[ 6 ] * y + e[ 10 ] * z + e[ 14 ] * w;
+            vector[3] = e[ 3 ] * x + e[ 7 ] * y + e[ 11 ] * z + e[ 15 ] * w;
+        }
+        function vectorSet(v,x,y,z,w){
+            v[0] = x;
+            v[1] = y;
+            v[2] = z;
+            v[3] = w;
+        }
+        function vectorDivideScalar(v,s){
+            var is = 1/s;
+            v[0] *= is;
+            v[1] *= is;
+            v[2] *= is;
+            v[3] *= is;
         }
 
         this.renderTriangles = function( indices, vertices, matrix ){
+            var va = renderTriangles_va;
+            var vb = renderTriangles_vb;
+            var vc = renderTriangles_vc;
             for(var i=0; i<indices.length; i+=3){
-                va.set(vertices[indices[i+0]*3+0], vertices[indices[i+0]*3+1], vertices[indices[i+0]*3+2],1);
-                vb.set(vertices[indices[i+1]*3+0], vertices[indices[i+1]*3+1], vertices[indices[i+1]*3+2],1);
-                vc.set(vertices[indices[i+2]*3+0], vertices[indices[i+2]*3+1], vertices[indices[i+2]*3+2],1);
-                va.w = vb.w = vc.w = 1;
+                vectorSet(va, vertices[indices[i+0]*3+0], vertices[indices[i+0]*3+1], vertices[indices[i+0]*3+2],1);
+                vectorSet(vb, vertices[indices[i+1]*3+0], vertices[indices[i+1]*3+1], vertices[indices[i+1]*3+2],1);
+                vectorSet(vc, vertices[indices[i+2]*3+0], vertices[indices[i+2]*3+1], vertices[indices[i+2]*3+2],1);
                 applyMatrix4ToVector4( va, matrix );
                 applyMatrix4ToVector4( vb, matrix );
                 applyMatrix4ToVector4( vc, matrix );
-                va.divideScalar(va.w);
-                vb.divideScalar(vb.w);
-                vc.divideScalar(vc.w);
+                vectorDivideScalar(va,va[3]); //divide by w
+                vectorDivideScalar(vb,vb[3]);
+                vectorDivideScalar(vc,vc[3]);
 
-                if(ndcTriangleIsInUnitBox(va,vb,vc)){
+                if(ndcTriangleIsInUnitBoxArray(va,vb,vc)){
                     this.drawTriangleToZPyramid(va,vb,vc);
                 }
             }
@@ -171,12 +189,12 @@
             var vc = drawTriangleToZPyramid_vc;
 
             // Convert to screen space (0 to 1)
-            ndcTo01(va, a);
-            ndcTo01(vb, b);
-            ndcTo01(vc, c);
+            ndcTo01ArrayVector(va, a);
+            ndcTo01ArrayVector(vb, b);
+            ndcTo01ArrayVector(vc, c);
 
             // backface culling
-            if (!checkBackfaceCulling(va, vb, vc)) {
+            if (!checkBackfaceCullingArray(va, vb, vc)) {
                 if (!this.renderBackfaces) return;
 
                 // Flip the triangle to render its back face
@@ -185,16 +203,16 @@
                 vb = temp;
             }
 
-            var triangleZMax = Math.max(va.z, vb.z, vc.z);
+            var triangleZMax = Math.max(va[2], vb[2], vc[2]);
 
             if (triangleZMax < 0 || triangleZMax > 1) return; // Near/far plane clip
 
-            var ax = Math.floor(va.x * w);
-            var ay = Math.floor(va.y * h);
-            var bx = Math.floor(vb.x * w);
-            var by = Math.floor(vb.y * h);
-            var cx = Math.floor(vc.x * w);
-            var cy = Math.floor(vc.y * h);
+            var ax = Math.floor(va[0] * w);
+            var ay = Math.floor(va[1] * h);
+            var bx = Math.floor(vb[0] * w);
+            var by = Math.floor(vb[1] * h);
+            var cx = Math.floor(vc[0] * w);
+            var cy = Math.floor(vc[1] * h);
 
             // Get xy bounds for triangle
             var minx = Math.min(ax, bx, cx);
@@ -215,9 +233,9 @@
             var loops = 0;
             for (var j = jmin; j < jmax; j++) {
                 var y = blockSizeY * j / h;
-                var xIntersect0 = getXAxisIntersection(va.x, va.y, vb.x, vb.y, y);
-                var xIntersect1 = getXAxisIntersection(vb.x, vb.y, vc.x, vc.y, y);
-                var xIntersect2 = getXAxisIntersection(vc.x, vc.y, va.x, va.y, y);
+                var xIntersect0 = getXAxisIntersection(va[0], va[1], vb[0], vb[1], y);
+                var xIntersect1 = getXAxisIntersection(vb[0], vb[1], vc[0], vc[1], y);
+                var xIntersect2 = getXAxisIntersection(vc[0], vc[1], va[0], va[1], y);
 
                 var kmin = Math.floor(minx / blockSizeX);
                 var kmax = Math.ceil(maxx / blockSizeX);
@@ -227,9 +245,9 @@
 
                     var x = blockSizeX * k / w;
 
-                    var mask0 = getLineMask(va.x, va.y, vb.x, vb.y, vc.x, vc.y, x, y, xIntersect0);
-                    var mask1 = getLineMask(vb.x, vb.y, vc.x, vc.y, va.x, va.y, x, y, xIntersect1);
-                    var mask2 = getLineMask(vc.x, vc.y, va.x, va.y, vb.x, vb.y, x, y, xIntersect2);
+                    var mask0 = getLineMask(va[0], va[1], vb[0], vb[1], vc[0], vc[1], x, y, xIntersect0);
+                    var mask1 = getLineMask(vb[0], vb[1], vc[0], vc[1], va[0], va[1], x, y, xIntersect1);
+                    var mask2 = getLineMask(vc[0], vc[1], va[0], va[1], vb[0], vb[1], x, y, xIntersect2);
 
                     var triangleCoverageMask = mask0 & mask1 & mask2;
                     updateHiZBuffer(block, triangleZMax, triangleCoverageMask);
@@ -366,8 +384,8 @@
     }
 
 
-    function checkBackfaceCulling(v1, v2, v3) {
-        return ((v3.x - v1.x) * (v2.y - v1.y) - (v3.y - v1.y) * (v2.x - v1.x)) < 0;
+    function checkBackfaceCullingArray(v1, v2, v3) {
+        return ((v3[0] - v1[0]) * (v2[1] - v1[1]) - (v3[1] - v1[1]) * (v2[0] - v1[0])) < 0;
     }
     function clamp(x, min, max) { return Math.min(Math.max(x, min), max); }
 
@@ -376,6 +394,13 @@
             (Math.min(a.x, b.x, c.x) > -1 && Math.max(a.x, b.x, c.x) < 1) ||
             (Math.min(a.y, b.y, c.y) > -1 && Math.max(a.y, b.y, c.y) < 1) ||
             (Math.min(a.z, b.z, c.z) > -1 && Math.max(a.z, b.z, c.z) < 1)
+        );
+    }
+    function ndcTriangleIsInUnitBoxArray(a, b, c) {
+        return (
+            (Math.min(a[0], b[0], c[0]) > -1 && Math.max(a[0], b[0], c[0]) < 1) ||
+            (Math.min(a[1], b[1], c[1]) > -1 && Math.max(a[1], b[1], c[1]) < 1) ||
+            (Math.min(a[2], b[2], c[2]) > -1 && Math.max(a[2], b[2], c[2]) < 1)
         );
     }
 
@@ -400,6 +425,12 @@
         out.x = (point.x + 1) * 0.5;
         out.y = (point.y + 1) * 0.5;
         out.z = (point.z + 1) * 0.5;
+    }
+
+    function ndcTo01ArrayVector(out, point) {
+        out[0] = (point[0] + 1) * 0.5;
+        out[1] = (point[1] + 1) * 0.5;
+        out[2] = (point[2] + 1) * 0.5;
     }
 
     function getXAxisIntersection(ax, ay, bx, by, y) {

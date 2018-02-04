@@ -29,7 +29,7 @@
             h = height;
 
             // Init blocks
-            blockSizeX = 32;
+            blockSizeX = 1;
             blockSizeY = 1;
             blocks.length = 0;
             numBlocksX = Math.ceil(w / blockSizeX);
@@ -315,34 +315,70 @@
             var dataX = 0;
             while(mipSize>2){
                 for(var py=0; py<mipSize; py++){
-                for(var px=0; px<mipSize; px++){
-                    var mipPosition = py*mipSize + px;
-                    var depth = mipmaps[mipIndex][mipPosition];
-                    var dataOffset = 4*((mipSize-py-1)*w*2 + dataX+px); // render upside down
-                    array[dataOffset+0] = 255*depth;
-                    array[dataOffset+1] = 255*depth;
-                    array[dataOffset+2] = 255*depth;
-                    array[dataOffset+3] = 255;
-                }
+                    for(var px=0; px<mipSize; px++){
+                        var mipPosition = py*mipSize + px;
+                        var depth = mipmaps[mipIndex][mipPosition];
+                        var dataOffset = 4*((mipSize-py-1)*w*2 + dataX+px); // render upside down
+                        array[dataOffset+0] = 255*(depth);
+                        array[dataOffset+1] = 255*(depth);
+                        array[dataOffset+2] = 255*(depth);
+                        array[dataOffset+3] = 255;
+                    }
                 }
                 dataX += mipSize;
                 mipSize /= 2;
                 mipIndex++;
             }
         }
+
+        function updateHiZBuffer(block, triangleZMax, triangleCoverageMask) {
+            var dist1t = block.zMax1 - triangleZMax;
+            var dist01 = block.zMax0 - block.zMax1;
+
+            if(dist1t > dist01){
+                block.zMax1 = 0;
+                block.coverageMask = 0;
+            }
+
+            block.zMax1 = Math.max(block.zMax1, triangleZMax);
+            block.coverageMask |= triangleCoverageMask;
+
+            if (block.coverageMask === fullyCoveredBlock) {
+                block.zMax0 = block.zMax1;
+                block.zMax1 = 0;
+                block.coverageMask = 0;
+            }
+        }
+
+        function getLineMask(ax, ay, bx, by, cx, cy, x, y, x0) {
+            // Calculate intersection with the x axis
+            // y = k * x + m
+            // x = (y - m) / k
+            // k = (y - m) / x
+            // m = y - k * x
+            var xpixels = Math.max(0, Math.floor((x0 - x) * w + 0.5 + (ay < by ? -.5 : .5)));
+            var mask = 0;
+            if (xpixels >= 1 && xpixels <= blockSizeX) {
+                mask = (~(fullyCoveredBlock >>> (-xpixels))) & fullyCoveredBlock;
+            } else if (xpixels <= 0) {
+                mask = fullyCoveredBlock;
+            } else if (xpixels > blockSizeX) {
+                mask = 0;
+            }
+            if (ay <= by) mask = (~mask) & fullyCoveredBlock;
+            //if((bx-ax)*(cy-ay) - (by-ay)*(cx-ax) > 0) mask = ~mask; // fix for back faces?
+            return mask;
+        }
     }
 
     function Block() {
-        this.coverageMask = 1;
-        this.zMax1 = 0;
-        this.zMax0 = 0;
         this.clear();
     }
     Block.prototype = {
         clear: function () {
             this.coverageMask = 0;
             this.zMax0 = 1;
-            this.zMax1 = 1;
+            this.zMax1 = 0;
         }
     };
 
@@ -391,23 +427,6 @@
         );
     }
 
-    function updateHiZBuffer(block, triangleZMax, triangleCoverageMask) {
-        var dist1t = block.zMax1 - triangleZMax;
-        var dist01 = block.zMax0 - block.zMax1;
-        /* if(dist1t < dist01){
-            block.zMax1 = triangleZMax;
-            block.coverageMask = triangleCoverageMask;
-        } */
-        block.zMax1 = Math.min(block.zMax1, triangleZMax);
-        block.coverageMask |= triangleCoverageMask;
-
-        if (false && block.coverageMask === fullyCoveredBlock) {
-            block.zMax0 = block.zMax1;
-            block.zMax1 = 0;
-            block.coverageMask = 0;
-        }
-    }
-
     function ndcTo01ArrayVector(out, point) {
         out[0] = (point[0] + 1) * 0.5;
         out[1] = (point[1] + 1) * 0.5;
@@ -424,24 +443,5 @@
         return x0;
     }
 
-    function getLineMask(ax, ay, bx, by, cx, cy, x, y, x0) {
-        // Calculate intersection with the x axis
-        // y = k * x + m
-        // x = (y - m) / k
-        // k = (y - m) / x
-        // m = y - k * x
-        var xpixels = Math.max(0, Math.floor((x0 - x) * w + 0.5 + (ay < by ? -.5 : .5)));
-        var mask = 0;
-        if (xpixels >= 1 && xpixels <= blockSizeX) {
-            mask = ~((~0) >>> (-xpixels));
-        } else if (xpixels <= 0) {
-            mask = ~0;
-        } else if (xpixels > blockSizeX) {
-            mask = 0;
-        }
-        if (ay <= by) mask = ~mask;
-        //if((bx-ax)*(cy-ay) - (by-ay)*(cx-ax) > 0) mask = ~mask; // fix for back faces?
-        return mask;
-    }
 
 })(window);
